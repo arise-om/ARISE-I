@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=67", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arise-i"
+version = "1.3.0"
+description = "Autonomous File Organization Unit — sorts Downloads and any folder automatically"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Om", email = "om@ironlabs.tech" }]
+requires-python = ">=3.10"
+keywords = ["file-organizer", "automation", "downloads", "sorting", "daemon"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Environment :: X11 Applications",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Desktop Environment :: File Managers",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "PyYAML>=6.0",
+    "watchdog>=3.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pyinstaller>=6.0",
+]
+
+[project.scripts]
+# After `pip install -e .` these commands become available system-wide:
+arise-i     = "file_organizer:_cli_main"
+arise-i-gui = "gui:main"
+
+[project.urls]
+Homepage   = "https://github.com/arise-om/ARISE-I"
+Repository = "https://github.com/arise-om/ARISE-I"
+Issues     = "https://github.com/arise-om/ARISE-I/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts   = "-v"
+
+[tool.setuptools]
+# ARISE-I is a flat-module project, not a package directory.  Explicitly
+# declaring these modules makes them available to the console entry points
+# after both regular and editable installs.
+py-modules = ["file_organizer", "file_watcher", "gui", "plugin_loader"]

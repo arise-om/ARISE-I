@@ -1,0 +1,9 @@
+# ARISE-I — Runtime dependencies
+# Install with:  pip install -r requirements.txt
+
+# YAML config file support (arise-i.config.yaml)
+PyYAML>=6.0
+
+# File-system event watching for --watch / daemon mode
+# Optional — only needed if you use the Watch button or --watch flag
+watchdog>=3.0.0

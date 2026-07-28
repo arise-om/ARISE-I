@@ -1,0 +1,8 @@
+# ARISE-I — Development dependencies
+# Install with:  pip install -r requirements-dev.txt
+
+-r requirements.txt
+
+# Testing
+pytest>=7.0
+pytest-cov>=4.0
