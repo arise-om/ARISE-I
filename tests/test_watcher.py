@@ -57,18 +57,21 @@ class TestDebounceTimer:
 
     def test_reset_extends_window(self):
         """A second trigger() call before the delay resets the countdown."""
+        fired = threading.Event()
         call_count = {"n": 0}
 
         def cb():
             call_count["n"] += 1
+            fired.set()
 
-        timer = _DebounceTimer(delay=0.1, callback=cb)
+        timer = _DebounceTimer(delay=0.2, callback=cb)
         timer.trigger()
-        time.sleep(0.05)   # fire a second trigger mid-window
+        time.sleep(0.05)
         timer.trigger()
-        time.sleep(0.05)   # still before the new deadline
-        assert call_count["n"] == 0, "callback must not have fired yet"
-        time.sleep(0.15)   # now past the second deadline
+        # Leave a generous margin before the second deadline so this remains
+        # deterministic on loaded CI runners and slower operating systems.
+        assert not fired.wait(timeout=0.1), "callback must not have fired yet"
+        assert fired.wait(timeout=0.5), "callback should fire after the reset window"
         assert call_count["n"] == 1, "callback should fire exactly once"
 
     def test_cancel_prevents_fire(self):

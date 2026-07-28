@@ -78,19 +78,32 @@ class _DebounceTimer:
         self._callback = callback
         self._timer: threading.Timer | None = None
         self._lock  = threading.Lock()
+        self._generation = 0
+
+    def _fire(self, generation: int) -> None:
+        """Run only if this timer is still the active debounce generation."""
+        with self._lock:
+            if generation != self._generation:
+                return
+            self._timer = None
+        self._callback()
 
     def trigger(self) -> None:
         """Reset the countdown window — call this on every FS event."""
         with self._lock:
             if self._timer is not None:
                 self._timer.cancel()
-            self._timer = threading.Timer(self._delay, self._callback)
+            self._generation += 1
+            self._timer = threading.Timer(
+                self._delay, self._fire, args=(self._generation,)
+            )
             self._timer.daemon = True
             self._timer.start()
 
     def cancel(self) -> None:
         """Cancel any pending fire (called on shutdown)."""
         with self._lock:
+            self._generation += 1
             if self._timer is not None:
                 self._timer.cancel()
                 self._timer = None
