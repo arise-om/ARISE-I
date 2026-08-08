@@ -58,6 +58,11 @@ try:
 except ImportError:  # pragma: no cover
     ClassifierPlugin = None  # type: ignore[assignment,misc]
 
+try:
+    from learning_store import LearningStore as _LS
+except ImportError:
+    _LS = None  # type: ignore[assignment,misc]
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -135,13 +140,15 @@ class AriseIEventHandler(FileSystemEventHandler):
         dry_run: bool = False,
         categories: dict | None = None,
         plugins: "list | None" = None,
+        learning_store=None,
     ) -> None:
         super().__init__()
-        self.target_dir = target_dir
-        self.dry_run    = dry_run
-        self.categories = categories
-        self.plugins    = plugins or []
-        self._timer     = _DebounceTimer(debounce, self._run_organizer)
+        self.target_dir     = target_dir
+        self.dry_run        = dry_run
+        self.categories     = categories
+        self.plugins        = plugins or []
+        self._learning_store = learning_store
+        self._timer         = _DebounceTimer(debounce, self._run_organizer)
 
     # ------------------------------------------------------------------
     # Watchdog callbacks
@@ -196,6 +203,8 @@ class AriseIEventHandler(FileSystemEventHandler):
             kwargs["categories"] = self.categories
         if self.plugins:
             kwargs["plugins"] = self.plugins
+        if self._learning_store is not None:
+            kwargs["learning_store"] = self._learning_store
         stats: Stats = organize_folder(str(self.target_dir), **kwargs)
         stats.print_summary()
         print(
@@ -213,21 +222,16 @@ def watch_folder(
     dry_run: bool = False,
     categories: dict | None = None,
     plugins: "list | None" = None,
+    learning_store=None,
+    max_restarts: int = 5,
 ) -> None:
     """Start a blocking watch-loop over *target_dir*.
 
-    Blocks indefinitely until the user presses Ctrl-C.
+    The observer is wrapped in an exponential-backoff restart loop so a
+    crashed watchdog thread is automatically recovered (up to max_restarts
+    times before giving up).
 
-    Parameters
-    ----------
-    target_dir : str
-        Directory to watch.  Must exist.
-    debounce : float
-        Seconds of FS inactivity to wait before running the organizer.
-    dry_run : bool
-        When True, no files are moved (preview only).
-    categories : dict, optional
-        Custom category → extension map.
+    Blocks indefinitely until the user presses Ctrl-C.
     """
     target_path = Path(target_dir).expanduser().resolve()
 
@@ -237,17 +241,6 @@ def watch_folder(
     if not target_path.is_dir():
         print(f"{Color.RED}✗ Path is not a directory: {target_path}{Color.RESET}")
         return
-
-    handler  = AriseIEventHandler(
-        target_dir=target_path,
-        debounce=debounce,
-        dry_run=dry_run,
-        categories=categories,
-        plugins=plugins,
-    )
-    observer = Observer()
-    observer.schedule(handler, str(target_path), recursive=False)
-    observer.start()
 
     mode_note = (
         f"{Color.YELLOW}[SIMULATION — files will NOT be moved]{Color.RESET}"
@@ -262,16 +255,54 @@ def watch_folder(
         f"\n{Color.DIM}Press Ctrl-C to stop.{Color.RESET}\n"
     )
 
-    try:
-        while True:
-            time.sleep(0.5)
-    except KeyboardInterrupt:
-        print(f"\n{Color.YELLOW}ARISE-I » Shutdown signal received.  Stopping...{Color.RESET}")
-        handler._timer.cancel()
-    finally:
-        observer.stop()
-        observer.join()
-        print(f"{Color.CYAN}ARISE-I » Daemon offline.{Color.RESET}")
+    restart_count = 0
+    backoff       = 2.0   # seconds; doubles on each restart
+
+    while restart_count <= max_restarts:
+        handler = AriseIEventHandler(
+            target_dir=target_path,
+            debounce=debounce,
+            dry_run=dry_run,
+            categories=categories,
+            plugins=plugins,
+            learning_store=learning_store,
+        )
+        observer = Observer()
+        observer.schedule(handler, str(target_path), recursive=False)
+        observer.start()
+
+        try:
+            while observer.is_alive():
+                time.sleep(0.5)
+            # Observer died unexpectedly
+            raise RuntimeError("watchdog observer exited unexpectedly")
+        except KeyboardInterrupt:
+            print(f"\n{Color.YELLOW}ARISE-I » Shutdown signal received.  Stopping...{Color.RESET}")
+            handler._timer.cancel()
+            observer.stop()
+            if observer.is_alive():
+                observer.join()
+            print(f"{Color.CYAN}ARISE-I » Daemon offline.{Color.RESET}")
+            return
+        except Exception as exc:
+            handler._timer.cancel()
+            observer.stop()
+            if observer.is_alive():
+                observer.join(timeout=5)
+            restart_count += 1
+            if restart_count > max_restarts:
+                print(
+                    f"{Color.RED}ARISE-I » Watch daemon failed after "
+                    f"{max_restarts} restarts ({exc}).  Giving up.{Color.RESET}"
+                )
+                return
+            print(
+                f"{Color.YELLOW}ARISE-I » Observer crashed ({exc}). "
+                f"Restarting in {backoff:.0f}s "
+                f"({restart_count}/{max_restarts})...{Color.RESET}"
+            )
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 60)
 
 
 # ---------------------------------------------------------------------------

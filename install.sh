@@ -82,6 +82,54 @@ fi
 echo "✅ ARISE-I installed"
 echo ""
 
+# ── AI Extras (optional) ──────────────────────────────────────────────────────
+echo "🤖 AI Smart-Classification (optional)"
+echo "   Enables byte-level MIME detection and a local ML model that learns"
+echo "   from your corrections. Adds ~60 MB (scikit-learn + filetype)."
+echo ""
+
+INSTALL_AI=false
+if [ -t 0 ]; then
+    # stdin is a TTY — ask interactively
+    read -r -p "   Install AI extras? [y/N] " _ai_answer
+    case "$_ai_answer" in
+        [Yy]|[Yy][Ee][Ss]) INSTALL_AI=true ;;
+    esac
+else
+    echo "   (Non-interactive mode — skipping AI extras.)"
+    echo "   To add later:  pip install arise-i[ai]  inside the venv"
+fi
+
+if $INSTALL_AI; then
+    echo "🔧 Installing AI extras (scikit-learn, filetype)…"
+    if "$VENV_DIR/bin/python" -m pip install "scikit-learn>=1.3" "filetype>=1.2" -q; then
+        echo "✅ AI extras installed — smart classification enabled"
+    else
+        echo "⚠️  AI extras install failed. ARISE-I will still work without them."
+        echo "   Retry later: pip install scikit-learn filetype"
+    fi
+else
+    echo "   Skipped. To enable later, run:"
+    echo "   $VENV_DIR/bin/pip install scikit-learn filetype"
+fi
+echo ""
+
+
+# Create ~/.local/bin wrapper scripts so the commands are available on $PATH
+# and always delegate to the venv — avoiding shebang interpreter mismatches.
+echo "🔗 Installing command-line wrappers..."
+BIN_DIR="${HOME}/.local/bin"
+mkdir -p "$BIN_DIR"
+
+for CMD in arise-i arise-i-gui; do
+    WRAPPER="$BIN_DIR/$CMD"
+    printf '#!/bin/bash\nexec "%s/bin/%s" "$@"\n' "$VENV_DIR" "$CMD" > "$WRAPPER"
+    chmod +x "$WRAPPER"
+done
+
+echo "✅ CLI wrappers installed (arise-i, arise-i-gui)"
+echo ""
+
 # Create desktop shortcut (Linux only)
 if [[ "$OS" == "linux" ]]; then
     echo "🖥️  Creating desktop shortcut..."

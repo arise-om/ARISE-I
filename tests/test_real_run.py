@@ -43,10 +43,16 @@ class TestRealRun:
         assert (tmp_path / "Archives"/ "archive.zip").exists()
         assert (tmp_path / "Code"    / "script.py").exists()
 
-    def test_no_extension_file_goes_to_others(self, tmp_path):
+    def test_no_extension_file_goes_to_review_or_others(self, tmp_path):
+        """Extensionless files have low classifier confidence → __Review__/ or Others."""
         (tmp_path / "README").touch()
         organize_folder(str(tmp_path), dry_run=False)
-        assert (tmp_path / "Others" / "README").exists()
+        # AI classifier routes low-confidence files to __Review__/;
+        # fallback (no classifier) routes to Others/
+        in_review = (tmp_path / "__Review__" / "README").exists()
+        in_others = (tmp_path / "Others"     / "README").exists()
+        assert in_review or in_others, "README should land in __Review__/ or Others/"
+
 
     def test_hidden_files_are_never_moved(self, tmp_path):
         """Settings and OS metadata must be safe even in a chosen folder."""

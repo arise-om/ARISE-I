@@ -1,79 +1,120 @@
 # ARISE-I
 
-**A calmer Downloads folder, in one click.**
+**An AI-powered file organizer that gets smarter every time you use it.**
 
-ARISE-I is a private desktop app that turns a messy folder into neat, categorized collections. Preview changes safely, organize in one click, and undo any run if you change your mind.
-
-Your files stay on your computer. ARISE-I never deletes them.
+ARISE-I watches your Downloads folder (or any folder) and automatically sorts files into neat categories — using a 4-layer AI engine that learns from your corrections. Everything runs locally; your files and data never leave your machine.
 
 ---
 
-## ✨ Features
+## 🆕 What's New in v2.0.0
 
-- **One-Click Organization** - Just click "Organize Now" and ARISE-I sorts everything automatically
-- **Auto-Sort** - Enable auto-sort and ARISE-I watches your folder, organizing new files as they arrive
-- **Undo Support** - Made a mistake? Click "Undo Last" to restore everything
-- **Smart Categories** - Automatically sorts into 13 categories: Images, Documents, Videos, Music, Code, and more
-- **Safe & Secure** - Files are never deleted, only organized. All processing happens on your computer.
+- **AI Classification Engine** — Multi-layer classifier: extension → MIME → heuristics → local ML model
+- **Confidence Scoring** — Every file gets a confidence badge (`[HIGH 92%]` / `[MED 71%]` / `[LOW 34%]`)
+- **Review Queue** — Uncertain files go to `__Review__/` instead of being silently mis-sorted; a dedicated tab lets you confirm the right category in one click
+- **Adaptive Learning** — Each correction trains a local `scikit-learn` model so ARISE-I improves over time
+- **Self-Healing Daemon** — Background health monitor auto-repairs corrupted manifests, detects disk pressure, and auto-retrains when accuracy drifts
+- **Dark Mode** — Toggle ☀️/🌙 in the header; preference is saved between sessions
+- **Crash-Resistant Watcher** — Auto-sort daemon restarts itself (exponential backoff, up to 5 times) if the watchdog thread crashes
+
+---
+
+## ✨ Core Features
+
+| Feature | Details |
+|---|---|
+| **One-Click Organization** | Click "Organize Now" — done |
+| **Smart Preview** | See exactly what would move before committing |
+| **Undo** | Restore everything from the last run, any time |
+| **Auto-Sort** | Watches for new files and sorts them as they arrive |
+| **AI Classifier** | 4 layers: extension map → MIME sniff → filename heuristics → sklearn ML |
+| **Review Queue** | Low-confidence files quarantined for manual review, not silently misfiled |
+| **Self-Healing** | Background daemon auto-repairs issues without user action |
+| **100 % Local** | No cloud, no API keys, no data egress — ever |
 
 ---
 
 ## 🚀 Quick Start
 
-### Windows (recommended)
-1. Download `ARISE-I-Setup-<version>-Windows.exe` from the latest GitHub Release
-2. Run the installer and open ARISE-I from the Start menu
-3. Click **Preview changes first** or **Organize Now**
+### Install from source (Linux / macOS)
 
-### macOS
-1. Download `ARISE-I-macOS.zip` from the latest GitHub Release
-2. Move `ARISE-I.app` into Applications and open it
+```bash
+git clone https://github.com/om-ironlabs/ARISE-I.git
+cd ARISE-I
+bash install.sh
+arise-i-gui
+```
 
-### Linux
-1. Download and extract `ARISE-I-Linux.tar.gz` from the latest GitHub Release
-2. Run `ARISE-I/ARISE-I`
+The installer will ask if you want AI extras (`scikit-learn` + `filetype`). Choose **Y** for full smart-classification with the ML layer.
 
-### From source
+### Enable AI extras later
 
-The `install.sh` and `install.bat` scripts are for contributors and advanced users. They require Python 3.10+.
+```bash
+pip install arise-i[ai]
+# or
+pip install scikit-learn filetype
+```
 
----
+### Windows
 
-## 📖 What Gets Organized
-
-ARISE-I automatically sorts files into these categories:
-
-| Category | Files |
-|----------|-------|
-| **Images** | Photos, screenshots, graphics (.jpg, .png, .gif, etc.) |
-| **Documents** | Word docs, text files, PDFs (.doc, .docx, .txt, .pdf) |
-| **Videos** | Movies, screen recordings (.mp4, .mkv, .avi, etc.) |
-| **Music** | Songs, audio files (.mp3, .wav, .flac, etc.) |
-| **Code** | Programming files (.py, .js, .html, .css, etc.) |
-| **Archives** | ZIP, RAR files (.zip, .rar, .7z, etc.) |
-| **Installers** | Application installers (.exe, .dmg, .apk, etc.) |
-| **And more** | 13 categories total |
+```bat
+install.bat
+start.bat
+```
 
 ---
 
-## 🎯 How It Works
+## 🧠 How the AI Engine Works
 
-1. **Scan** - ARISE-I reads every file in your folder
-2. **Classify** - Each file is automatically categorized by type
-3. **Organize** - Files are moved into neat category folders
-4. **Log** - Every move is recorded so you can undo if needed
+```
+File dropped
+    │
+    ├── Layer 1: Extension map       → conf 0.92  (e.g. .pdf → PDFs)
+    ├── Layer 2: MIME type sniff     → conf 0.88  (byte-level via filetype)
+    ├── Layer 3: Filename heuristics → conf 0.76–0.88 (regex patterns)
+    └── Layer 4: sklearn ML model    → trained on your corrections
+               │
+               ├── confidence ≥ 0.75  →  Sort to correct folder  ✅
+               └── confidence < 0.75  →  __Review__/ tab          ⚠
+                                              │
+                                         You pick the folder
+                                              │
+                                         LearningStore.record()
+                                              │ (every 50 events)
+                                         Model retrains locally
+                                              │
+                                         Classifier improves 🧠
+```
 
 ---
 
-## ⚙️ Advanced Usage
+## 📂 Categories
 
-### Command Line Interface
+| Category | File types |
+|---|---|
+| Images | `.jpg` `.png` `.gif` `.svg` `.webp` `.heic` … |
+| Videos | `.mp4` `.mkv` `.avi` `.mov` `.webm` … |
+| Music | `.mp3` `.flac` `.wav` `.aac` `.ogg` … |
+| Documents | `.docx` `.txt` `.odt` `.rtf` … |
+| PDFs | `.pdf` |
+| Spreadsheets | `.xlsx` `.csv` `.ods` … |
+| Presentations | `.pptx` `.odp` … |
+| Code | `.py` `.js` `.ts` `.html` `.css` `.go` … |
+| Archives | `.zip` `.rar` `.7z` `.tar.gz` … |
+| Installers | `.exe` `.dmg` `.deb` `.apk` … |
+| Ebooks | `.epub` `.mobi` |
+| Fonts | `.ttf` `.otf` `.woff` … |
+| Others | Everything else |
+| **`__Review__/`** | Low-confidence files awaiting your decision |
+
+---
+
+## ⚙️ CLI Usage
 
 ```bash
 # Organize your Downloads folder
 arise-i
 
-# Preview what would happen (safe mode)
+# Preview without moving anything
 arise-i --dry-run
 
 # Organize a specific folder
@@ -86,9 +127,11 @@ arise-i --watch
 arise-i --undo
 ```
 
-### Custom Categories
+---
 
-Create a `arise-i.config.yaml` file to define your own categories:
+## 🔌 Custom Categories
+
+Create `arise-i.config.yaml` in the target folder:
 
 ```yaml
 Work:
@@ -106,22 +149,37 @@ MyScripts:
   - .sh
 ```
 
-### Plugin System
+---
 
-Add custom sorting logic by dropping Python plugins into `~/.arise-i/plugins/`:
+## 🧩 Plugin System
+
+Drop `.py` files into `~/.arise-i/plugins/` for custom classification logic:
 
 ```python
 # ~/.arise-i/plugins/01_by_year.py
-from pathlib import Path
-import datetime
+from pathlib import Path, datetime
 
 def classify(path: Path) -> str | None:
-    """Sort image files into Photos-<year> folders."""
     if path.suffix.lower() not in {".jpg", ".jpeg", ".png"}:
         return None
-    year = datetime.datetime.fromtimestamp(path.stat().st_mtime).year
+    year = datetime.fromtimestamp(path.stat().st_mtime).year
     return f"Photos-{year}"
 ```
+
+---
+
+## 🛠️ Technical Details
+
+| | |
+|---|---|
+| **Language** | Python 3.10+ |
+| **GUI** | Tkinter (zero extra deps for base UI) |
+| **Core deps** | PyYAML, watchdog |
+| **AI deps** | scikit-learn, filetype *(optional)* |
+| **ML model** | TF-IDF + Multinomial Naive Bayes, trained locally |
+| **Storage** | `~/.arise-i/` — feedback log, model pickle, prefs |
+| **Privacy** | 100 % local — no network requests, ever |
+| **Platforms** | Linux, macOS, Windows |
 
 ---
 
@@ -130,29 +188,19 @@ def classify(path: Path) -> str | None:
 ```bash
 pip install pytest
 pytest tests/ -v
+# 120 tests, all passing
 ```
-
----
-
-## 🛠️ Technical Details
-
-- **Built with:** Python 3.10+
-- **Dependencies:** PyYAML, watchdog (optional)
-- **Platform:** Windows, macOS, Linux
-- **Privacy:** All processing happens locally on your computer
 
 ---
 
 ## 📄 License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE)
 
 ---
 
 ## 🙋 Author
 
-**Om** — Robotics & Automation Engineering student, founder of [Ironlabs.tech](https://ironlabs.tech)
-
----
+**Om Deshmukh** — Robotics & Automation Engineering student, founder of [Ironlabs.tech](https://ironlabs.tech)
 
 **Made with ❤️ by Ironlabs.tech**

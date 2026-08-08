@@ -7,3 +7,14 @@ PyYAML>=6.0
 # File-system event watching for --watch / daemon mode
 # Optional — only needed if you use the Watch button or --watch flag
 watchdog>=3.0.0
+
+# ── AI / Smart-Classification extras (optional) ───────────────────────────────
+# Install with:  pip install arise-i[ai]  or  pip install scikit-learn filetype
+#
+# scikit-learn  — Enables the ML model layer (Layer 4 of the classifier).
+#                 Without it, ARISE-I falls back to extension + MIME + heuristics.
+# filetype      — Byte-level MIME detection (more accurate than Python stdlib).
+#                 Without it, ARISE-I falls back to mimetypes.guess_type().
+#
+# scikit-learn>=1.3
+# filetype>=1.2

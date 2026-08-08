@@ -1,758 +1,891 @@
-"""
-ARISE-I — GUI Wrapper
----------------------
-Autonomous File Organization Unit: Desktop Interface.
-Built by Om // Ironlabs.tech
+"""ARISE-I v2.0.0 — GUI (AI-Powered Dashboard)"""
 
-A beautiful, Apple-style minimalist GUI that makes file organization effortless.
-Clean design, intuitive controls, and smart defaults for a seamless experience.
-
-Launch:
-    python gui.py          # Linux / macOS / Windows
-    python3 gui.py         # Linux if 'python' isn't on PATH
-
-Requirements:
-    pip install pyyaml watchdog   # core deps
-    sudo apt install python3-tk   # Ubuntu/Debian only
-    # macOS / Windows: tkinter ships with Python by default
-"""
-
+import json
 import queue
 import sys
 import threading
+import time
+from datetime import datetime
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Python version guard — must be 3.10+
-# ---------------------------------------------------------------------------
-
 if sys.version_info < (3, 10):
-    print(
-        f"\n[ARISE-I] ✗  Python 3.10+ is required.\n"
-        f"           You are running Python {sys.version_info.major}.{sys.version_info.minor}.\n"
-        f"           Please upgrade Python and try again.\n"
-    )
-    sys.exit(1)
-
-# ---------------------------------------------------------------------------
-# tkinter availability check
-# ---------------------------------------------------------------------------
+    print("[ARISE-I] Python 3.10+ required."); sys.exit(1)
 
 try:
     import tkinter as tk
-    from tkinter import filedialog, font as tkfont, messagebox, scrolledtext, ttk
+    from tkinter import filedialog, messagebox, ttk
 except ImportError:
-    print(
-        "\n[ARISE-I] ✗  tkinter is not installed.\n"
-        "           Ubuntu/Debian:  sudo apt install python3-tk\n"
-        "           macOS/Windows:  reinstall Python from python.org (check 'tcl/tk' option)\n"
-        "           Then re-run:    python gui.py\n"
-    )
-    sys.exit(1)
+    print("[ARISE-I] tkinter not installed.\n  Ubuntu: sudo apt install python3-tk"); sys.exit(1)
 
-# ---------------------------------------------------------------------------
-# Core imports
-# ---------------------------------------------------------------------------
+from file_organizer import Stats, load_categories, organize_folder, undo_last_run, _load_manifest
+from prefs import get_pref, load_prefs, save_prefs, set_pref
+import onboarding
 
-from file_organizer import (
-    Stats,
-    load_categories,
-    organize_folder,
-    undo_last_run,
-)
-
-APP_VERSION = "1.3.0"
-
-# watchdog is optional — only required for Watch mode.
-# file_watcher now sets WATCHDOG_AVAILABLE safely (no sys.exit at import time).
 try:
     from file_watcher import WATCHDOG_AVAILABLE, AriseIEventHandler
-except Exception:  # pragma: no cover — edge case where file_watcher itself breaks
+except Exception:
     WATCHDOG_AVAILABLE = False
-    AriseIEventHandler  = None  # type: ignore[assignment,misc]
+    AriseIEventHandler = None
 
+try:
+    from health_monitor import HealthMonitor
+except ImportError:
+    HealthMonitor = None  # type: ignore[assignment,misc]
 
-# ---------------------------------------------------------------------------
-# Palette  (Apple-style light theme)
-# ---------------------------------------------------------------------------
+try:
+    from learning_store import LearningStore
+except ImportError:
+    LearningStore = None  # type: ignore[assignment,misc]
 
-BG          = "#f5f5f7"   # Apple light gray background
-SURFACE     = "#ffffff"   # pure white for cards
-BORDER      = "#e5e5e7"   # subtle border
-ACCENT      = "#007AFF"   # Apple blue — primary accent
-ACCENT_DIM  = "#0056b3"   # darker blue — secondary / hover
-GREEN       = "#34C759"   # Apple green
-YELLOW      = "#FFD60A"   # Apple yellow
-RED         = "#FF3B30"   # Apple red
-FG          = "#1d1d1f"   # Apple dark text
-FG_DIM      = "#86868b"   # Apple gray text
-FONT_FAMILY = "SF Pro Display"  # Apple system font
+APP_VERSION = "2.0.0"
 
+# ── Colour palettes ───────────────────────────────────────────────────────────
+_THEMES: dict[str, dict[str, str]] = {
+    "light": {
+        "BG":       "#f5f5f7",
+        "SURFACE":  "#ffffff",
+        "BORDER":   "#e5e5e7",
+        "ACCENT":   "#007AFF",
+        "ACCENT_D": "#0056b3",
+        "GREEN":    "#34C759",
+        "YELLOW":   "#FFD60A",
+        "RED":      "#FF3B30",
+        "FG":       "#1d1d1f",
+        "FG_DIM":   "#86868b",
+        "PANEL":    "#f0f0f2",
+    },
+    "dark": {
+        "BG":       "#1c1c1e",
+        "SURFACE":  "#2c2c2e",
+        "BORDER":   "#3a3a3c",
+        "ACCENT":   "#0A84FF",
+        "ACCENT_D": "#0060df",
+        "GREEN":    "#30D158",
+        "YELLOW":   "#FFD60A",
+        "RED":      "#FF453A",
+        "FG":       "#f2f2f7",
+        "FG_DIM":   "#8e8e93",
+        "PANEL":    "#2c2c2e",
+    },
+}
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+# Module-level palette references (updated when theme changes)
+_p = _THEMES["light"]
+BG         = _p["BG"]
+SURFACE    = _p["SURFACE"]
+BORDER     = _p["BORDER"]
+ACCENT     = _p["ACCENT"]
+ACCENT_DIM = _p["ACCENT_D"]
+GREEN      = _p["GREEN"]
+YELLOW     = _p["YELLOW"]
+RED        = _p["RED"]
+FG         = _p["FG"]
+FG_DIM     = _p["FG_DIM"]
+PANEL_BG   = _p["PANEL"]
 
-def _font(size: int = 10, weight: str = "normal") -> tuple:
-    """Return font tuple with fallbacks for different platforms."""
-    if sys.platform == "darwin":
-        return ("SF Pro Display", size, weight)
-    elif sys.platform == "win32":
-        return ("Segoe UI", size, weight)
-    else:
-        return ("Ubuntu", size, weight)
+def _font(size=10, weight="normal"):
+    if sys.platform == "darwin":   return ("SF Pro Display", size, weight)
+    elif sys.platform == "win32":  return ("Segoe UI", size, weight)
+    else:                          return ("Ubuntu", size, weight)
 
-
-# ---------------------------------------------------------------------------
-# Main Application
-# ---------------------------------------------------------------------------
 
 class AriseIApp(tk.Tk):
-    """The ARISE-I desktop application window."""
-
-    # -----------------------------------------------------------------
-    # Initialisation
-    # -----------------------------------------------------------------
-
     def __init__(self):
         super().__init__()
-
         self.title("ARISE-I")
-        self.geometry("700x500")
-        self.minsize(600, 400)
+        self.geometry("960x620")
+        self.minsize(760, 520)
+
+        # Load theme before building UI
+        prefs = load_prefs()
+        self._theme = prefs.get("theme", "light")
+        self._apply_theme(self._theme, init=True)
         self.configure(bg=BG)
         self.resizable(True, True)
-
-        # App icon (drawn programmatically — no .ico file needed)
         self._set_icon()
 
         # State
-        self._watch_thread: threading.Thread | None = None
+        self._watch_thread = None
         self._watch_stop   = threading.Event()
-        self._log_queue: queue.Queue = queue.Queue()
+        self._log_queue    = queue.Queue()
         self._watching     = False
+        self._pulse_active = False
+        self._pulse_id     = None
 
-        # Default target: ~/Downloads — create it if it doesn't exist on this PC
-        downloads = Path.home() / "Downloads"
-        downloads.mkdir(parents=True, exist_ok=True)
-        self._target_var   = tk.StringVar(value=str(downloads))
+        # Prefs
+        self._target_var   = tk.StringVar(value=prefs.get("last_folder", str(Path.home()/"Downloads")))
         self._dry_run_var  = tk.BooleanVar(value=False)
-        self._debounce_var = tk.DoubleVar(value=2.0)
-        self._auto_sort_var = tk.BooleanVar(value=False)
+        self._debounce_var = tk.DoubleVar(value=prefs.get("debounce", 2.0))
+        self._auto_sort_var= tk.BooleanVar(value=False)
 
-        # Build UI
-        self._build_styles()
+        # AI subsystems (optional — graceful degradation)
+        self._learning_store = None
+        self._health_monitor = None
+        self._init_ai_subsystems()
+
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._setup_shortcuts()
 
-        # Emit a startup banner
+        self.after(200, self._run_onboarding)
+
         self._log("Welcome to ARISE-I", "hdr")
-        self._log("Your personal file organizer", "dim")
+        self._log("Your personal AI-powered file organizer — v" + APP_VERSION, "dim")
         if not WATCHDOG_AVAILABLE:
-            self._log(
-                "⚠  Auto-sort requires watchdog (pip install watchdog)",
-                "sim",
-            )
-
-        # Start polling the log queue
+            self._log("⚠  Auto-sort needs: pip install watchdog", "warn")
         self._poll_log_queue()
 
-        # Add keyboard shortcuts
-        self._setup_keyboard_shortcuts()
+    def _init_ai_subsystems(self) -> None:
+        if LearningStore is not None:
+            try:
+                self._learning_store = LearningStore(
+                    on_retrain=self._on_model_retrained
+                )
+            except Exception as exc:
+                self._learning_store = None
+        if HealthMonitor is not None:
+            try:
+                target = Path(self._target_var.get()).expanduser().resolve()
+                self._health_monitor = HealthMonitor(
+                    target_dir=target,
+                    log_queue=self._log_queue,
+                    learning_store=self._learning_store,
+                )
+                self._health_monitor.start()
+            except Exception:
+                self._health_monitor = None
 
-    # -----------------------------------------------------------------
-    # Icon (no external files required)
-    # -----------------------------------------------------------------
+    def _on_model_retrained(self) -> None:
+        self._log_queue.put("🧠  ML model retrained — classifier updated.")
 
-    def _set_icon(self) -> None:
+    def _set_icon(self):
         try:
             icon = tk.PhotoImage(width=32, height=32)
-            # Simple "A" shape in Apple blue on white bg
             for y in range(32):
                 for x in range(32):
-                    if (y >= 8 and y <= 24 and x >= 12 and x <= 20) or \
-                       (y >= 8 and y <= 24 and x >= 8 and x <= 12 and (x-8) == (y-8)) or \
-                       (y >= 8 and y <= 24 and x >= 20 and x <= 24 and (24-x) == (y-8)):
-                        icon.put("#007AFF", (x, y))
+                    if (8<=y<=24 and 12<=x<=20) or \
+                       (8<=y<=24 and 8<=x<=12 and (x-8)==(y-8)) or \
+                       (8<=y<=24 and 20<=x<=24 and (24-x)==(y-8)):
+                        icon.put("#007AFF",(x,y))
                     else:
-                        icon.put("#ffffff", (x, y))
+                        icon.put("#ffffff",(x,y))
             self.iconphoto(True, icon)
         except Exception:
-            pass  # Non-fatal — icon is cosmetic only
+            pass
 
-    # -----------------------------------------------------------------
-    # ttk Styles (Apple-style light theme)
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------ Theme
 
-    def _build_styles(self) -> None:
-        style = ttk.Style(self)
-        style.theme_use("clam")
+    def _apply_theme(self, name: str, init: bool = False) -> None:
+        """Switch the global palette to 'dark' or 'light' and re-draw."""
+        global BG, SURFACE, BORDER, ACCENT, ACCENT_DIM, GREEN, YELLOW, RED, FG, FG_DIM, PANEL_BG
+        p = _THEMES.get(name, _THEMES["light"])
+        BG         = p["BG"]
+        SURFACE    = p["SURFACE"]
+        BORDER     = p["BORDER"]
+        ACCENT     = p["ACCENT"]
+        ACCENT_DIM = p["ACCENT_D"]
+        GREEN      = p["GREEN"]
+        YELLOW     = p["YELLOW"]
+        RED        = p["RED"]
+        FG         = p["FG"]
+        FG_DIM     = p["FG_DIM"]
+        PANEL_BG   = p["PANEL"]
+        self._theme = name
+        if not init:
+            set_pref("theme", name)
+            # Re-configure root and rebuilt UI
+            self.configure(bg=BG)
+            self._refresh_theme_colors()
 
-        # General
-        style.configure(".", background=BG, foreground=FG,
-                         font=_font(10), borderwidth=0)
+    def _refresh_theme_colors(self) -> None:
+        """Walk all widgets and update bg/fg to the current palette."""
+        def _recurse(widget):
+            try:
+                cls = widget.winfo_class()
+                if cls in ("Frame", "Label"):
+                    widget.configure(bg=BG)
+                elif cls == "Text":
+                    widget.configure(bg=BG, fg=FG)
+                elif cls == "Entry":
+                    widget.configure(bg=SURFACE, fg=FG, insertbackground=ACCENT)
+                elif cls == "Button":
+                    try:
+                        widget.configure(bg=widget.cget("bg"))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            for child in widget.winfo_children():
+                _recurse(child)
+        _recurse(self)
 
-        # Frames
-        style.configure("Card.TFrame", background=SURFACE, relief="flat")
-        style.configure("Sep.TFrame",  background=BORDER)
+    def _toggle_theme(self) -> None:
+        new = "dark" if self._theme == "light" else "light"
+        self._apply_theme(new)
+        icon = "🌙" if new == "dark" else "☀️"
+        self._theme_btn.configure(text=icon)
 
-        # Labels
-        style.configure("Title.TLabel",   background=BG,      foreground=FG,
-                         font=_font(24, "bold"))
-        style.configure("Sub.TLabel",     background=BG,      foreground=FG_DIM,
-                         font=_font(12))
-        style.configure("Card.TLabel",    background=SURFACE, foreground=FG,
-                         font=_font(11))
-        style.configure("CardDim.TLabel", background=SURFACE, foreground=FG_DIM,
-                         font=_font(10))
+    # ------------------------------------------------------------------ UI
 
-        # Entry
-        style.configure("Apple.TEntry",
-                         fieldbackground=BG, foreground=FG,
-                         insertcolor=ACCENT, bordercolor=BORDER,
-                         relief="flat", padding=12, font=_font(11))
+    def _build_ui(self):
+        # ── Left panel (controls) ────────────────────────────────────────────
+        left = tk.Frame(self, bg=BG, width=320)
+        left.pack(side="left", fill="y", padx=0)
+        left.pack_propagate(False)
 
-        # Buttons
-        style.configure("Primary.TButton",
-                         background=ACCENT,    foreground="white",
-                         font=_font(11, "bold"), padding=(20, 10),
-                         relief="flat")
-        style.map("Primary.TButton",
-                  background=[("active", ACCENT_DIM), ("disabled", BORDER)],
-                  foreground=[("disabled", FG_DIM)])
+        # Logo
+        logo_frame = tk.Frame(left, bg=ACCENT, pady=20)
+        logo_frame.pack(fill="x")
+        logo_row = tk.Frame(logo_frame, bg=ACCENT)
+        logo_row.pack()
+        tk.Label(logo_row, text="ARISE-I", font=_font(26,"bold"),
+                 fg="white", bg=ACCENT).pack(side="left", padx=(0,8))
+        icon_char = "🌙" if self._theme == "dark" else "☀️"
+        self._theme_btn = tk.Button(
+            logo_row, text=icon_char, font=_font(14),
+            fg="white", bg=ACCENT, activebackground=ACCENT_DIM,
+            activeforeground="white", relief="flat", bd=0,
+            cursor="hand2", command=self._toggle_theme,
+        )
+        self._theme_btn.pack(side="left")
+        tk.Label(logo_frame, text="AI File Organization Unit",
+                 font=_font(10), fg="white", bg=ACCENT).pack(pady=(2,4))
 
-        style.configure("Secondary.TButton",
-                         background=SURFACE,   foreground=FG,
-                         font=_font(11),       padding=(20, 10),
-                         relief="flat", borderwidth=1)
-        style.map("Secondary.TButton",
-                  background=[("active", BG)])
+        # Folder section
+        folder_card = tk.Frame(left, bg=SURFACE, padx=16, pady=14)
+        folder_card.pack(fill="x", padx=12, pady=(16,0))
 
-        style.configure("Danger.TButton",
-                         background=RED,  foreground="white",
-                         font=_font(11, "bold"), padding=(20, 10),
-                         relief="flat")
-        style.map("Danger.TButton",
-                  background=[("active", "#c93d34")])
+        tk.Label(folder_card, text="Target Folder", font=_font(10,"bold"),
+                 fg=FG, bg=SURFACE).pack(anchor="w")
 
-        # Checkbutton
-        style.configure("Apple.TCheckbutton",
-                         background=SURFACE, foreground=FG,
-                         font=_font(11))
-        style.map("Apple.TCheckbutton",
-                  background=[("active", SURFACE)])
+        path_row = tk.Frame(folder_card, bg=SURFACE)
+        path_row.pack(fill="x", pady=(6,0))
 
-        # Spinbox label
-        style.configure("Dim.TLabel", background=SURFACE, foreground=FG_DIM,
-                         font=_font(10))
+        self._path_entry = tk.Entry(path_row, textvariable=self._target_var,
+                                    font=_font(9), bg=BG, fg=FG,
+                                    insertbackground=ACCENT, relief="flat",
+                                    bd=0, highlightthickness=1,
+                                    highlightbackground=BORDER,
+                                    highlightcolor=ACCENT)
+        self._path_entry.pack(side="left", fill="x", expand=True, ipady=5)
 
-    # -----------------------------------------------------------------
-    # UI Layout
-    # -----------------------------------------------------------------
+        tk.Button(path_row, text="⋯", font=_font(11,"bold"),
+                  fg=ACCENT, bg=SURFACE, relief="flat", bd=0,
+                  padx=8, cursor="hand2", command=self._browse).pack(side="left", padx=(4,0))
 
-    def _build_ui(self) -> None:
-        # ── Header ────────────────────────────────────────────────────
-        header = tk.Frame(self, bg=BG, pady=30)
-        header.pack(fill="x")
+        # Action buttons
+        btns = tk.Frame(left, bg=BG, padx=12)
+        btns.pack(fill="x", pady=16)
 
-        tk.Label(header, text="ARISE-I", font=_font(32, "bold"),
-                 fg=FG, bg=BG).pack(pady=(0, 8))
-        tk.Label(header, text="A calmer Downloads folder, in one click.",
-                 font=_font(13), fg=FG_DIM, bg=BG).pack()
-
-        # ── Main Action Button ────────────────────────────────────────
-        main_frame = tk.Frame(self, bg=BG, padx=40, pady=20)
-        main_frame.pack(fill="both", expand=True)
-
-        # Big primary button
-        self._sort_btn = tk.Button(
-            main_frame,
-            text="✨  Organize Now",
-            font=_font(14, "bold"), fg="white", bg=ACCENT,
+        self._sort_btn = tk.Button(btns, text="✨  Organize Now",
+            font=_font(12,"bold"), fg="white", bg=ACCENT,
             activebackground=ACCENT_DIM, activeforeground="white",
-            relief="flat", bd=0, padx=40, pady=15,
-            cursor="hand2", command=self._sort_now,
-        )
-        self._sort_btn.pack(pady=(20, 10))
+            relief="flat", bd=0, pady=12, cursor="hand2",
+            command=self._sort_now)
+        self._sort_btn.pack(fill="x", pady=(0,6))
 
-        tk.Label(
-            main_frame,
-            text="Files stay on your computer. Nothing is deleted, and every run can be undone.",
-            font=_font(10), fg=FG_DIM, bg=BG,
-        ).pack(pady=(0, 8))
-
-        # Secondary actions in a row
-        secondary_frame = tk.Frame(main_frame, bg=BG)
-        secondary_frame.pack(pady=10)
-
-        # Auto-sort toggle
-        self._auto_check = tk.Checkbutton(
-            secondary_frame,
-            text="Auto-sort new files",
-            variable=self._auto_sort_var,
-            font=_font(11), fg=FG, bg=BG,
-            selectcolor=ACCENT, activebackground=BG,
-            activeforeground="white", relief="flat", bd=0, cursor="hand2",
-            command=self._toggle_auto_sort
-        )
-        self._auto_check.pack(side="left", padx=10)
-
-        # Folder selector
-        folder_frame = tk.Frame(secondary_frame, bg=BG)
-        folder_frame.pack(side="left", padx=10)
-
-        tk.Label(folder_frame, text="📁", font=_font(12), fg=FG_DIM, bg=BG).pack(side="left")
-        path_entry = tk.Entry(folder_frame, textvariable=self._target_var,
-                               font=_font(11), bg=BG, fg=FG,
-                               insertbackground=ACCENT, relief="flat",
-                               bd=0, highlightthickness=0,
-                               width=30)
-        path_entry.pack(side="left", padx=5)
-        
-        browse_btn = tk.Button(folder_frame, text="Change",
-                                font=_font(10), fg=ACCENT, bg=BG,
-                                activebackground=BG, activeforeground=ACCENT_DIM,
-                                relief="flat", bd=0, padx=8, pady=5,
-                                cursor="hand2",
-                                command=self._browse)
-        browse_btn.pack(side="left")
-
-        self._preview_btn = tk.Button(
-            main_frame,
-            text="Preview changes first",
-            font=_font(10), fg=ACCENT, bg=BG,
+        self._preview_btn = tk.Button(btns, text="🔎  Preview Changes",
+            font=_font(11), fg=ACCENT, bg=SURFACE,
             activebackground=BG, activeforeground=ACCENT_DIM,
-            relief="flat", bd=0, padx=12, pady=6,
-            cursor="hand2", command=self._preview,
-        )
-        self._preview_btn.pack(pady=(2, 0))
+            relief="flat", bd=0, pady=10, cursor="hand2",
+            command=self._preview,
+            highlightthickness=1, highlightbackground=BORDER)
+        self._preview_btn.pack(fill="x", pady=(0,6))
 
-        # Undo button (subtle)
-        self._undo_btn = tk.Button(
-            main_frame,
-            text="↩  Undo Last",
+        self._undo_btn = tk.Button(btns, text="↩  Undo Last Run",
             font=_font(10), fg=FG_DIM, bg=BG,
             activebackground=BG, activeforeground=FG,
-            relief="flat", bd=0, padx=15, pady=8,
-            cursor="hand2", command=self._undo,
-        )
-        self._undo_btn.pack(pady=5)
+            relief="flat", bd=0, pady=8, cursor="hand2",
+            command=self._undo)
+        self._undo_btn.pack(fill="x")
 
-        # Help button
-        help_btn = tk.Button(
-            main_frame,
-            text="⌨  Shortcuts",
-            font=_font(9), fg=FG_DIM, bg=BG,
-            activebackground=BG, activeforeground=ACCENT,
-            relief="flat", bd=0, padx=10, pady=5,
-            cursor="hand2", command=self._show_help,
-        )
-        help_btn.pack(pady=5)
+        # Auto-sort toggle
+        sep1 = tk.Frame(left, bg=BORDER, height=1)
+        sep1.pack(fill="x", padx=12, pady=(4,12))
 
-        # ── Simple Status ───────────────────────────────────────────────
-        self._status_label = tk.Label(
-            main_frame,
-            text="Ready to organize",
-            font=_font(10), fg=FG_DIM, bg=BG,
-        )
-        self._status_label.pack(pady=(20, 0))
+        auto_card = tk.Frame(left, bg=SURFACE, padx=16, pady=12)
+        auto_card.pack(fill="x", padx=12)
 
-        tk.Label(
-            main_frame, text=f"ARISE-I {APP_VERSION}  •  Built by Ironlabs",
-            font=_font(9), fg=FG_DIM, bg=BG,
-        ).pack(pady=(6, 0))
+        auto_top = tk.Frame(auto_card, bg=SURFACE)
+        auto_top.pack(fill="x")
+        tk.Label(auto_top, text="Auto-Sort", font=_font(10,"bold"),
+                 fg=FG, bg=SURFACE).pack(side="left")
 
-        # ── Minimal Log (collapsible) ──────────────────────────────────
-        log_frame = tk.Frame(main_frame, bg=BG)
-        log_frame.pack(fill="both", expand=True, pady=(20, 0))
+        self._auto_check = tk.Checkbutton(auto_top, variable=self._auto_sort_var,
+            bg=SURFACE, activebackground=SURFACE, relief="flat",
+            cursor="hand2", command=self._toggle_auto_sort)
+        self._auto_check.pack(side="right")
 
-        self._log_text = tk.Text(
-            log_frame,
-            bg=BG, fg=FG_DIM, font=_font(9),
-            relief="flat", bd=0,
-            state="disabled",
-            wrap="word",
-            highlightthickness=0,
-            padx=0, pady=0,
-            height=6,
-        )
+        # Daemon pulse indicator
+        self._pulse_label = tk.Label(auto_card, text="● Idle",
+            font=_font(9), fg=FG_DIM, bg=SURFACE)
+        self._pulse_label.pack(anchor="w", pady=(4,0))
+
+        tk.Label(auto_card, text="Sorts new files as they arrive",
+                 font=_font(9), fg=FG_DIM, bg=SURFACE).pack(anchor="w")
+
+        # Version footer
+        tk.Label(left, text=f"v{APP_VERSION}  •  Ironlabs.tech",
+                 font=_font(8), fg=FG_DIM, bg=BG).pack(side="bottom", pady=10)
+
+        # ── Divider ──────────────────────────────────────────────────
+        div = tk.Frame(self, bg=BORDER, width=1)
+        div.pack(side="left", fill="y")
+
+        # ── Right panel (tabs) ───────────────────────────────────────
+        right = tk.Frame(self, bg=BG)
+        right.pack(side="left", fill="both", expand=True)
+
+        # Tab bar (manual)
+        tab_bar = tk.Frame(right, bg=SURFACE, pady=0)
+        tab_bar.pack(fill="x")
+
+        self._tab_frames = {}
+        self._tab_btns   = {}
+        self._active_tab = tk.StringVar(value="log")
+
+        for tab_id, tab_label in [("log","Activity Log"), ("history","History"),
+                                   ("stats","Last Run"),   ("review","Review Queue")]:
+            btn = tk.Button(tab_bar, text=tab_label,
+                font=_font(10), fg=FG_DIM, bg=SURFACE,
+                relief="flat", bd=0, padx=20, pady=10,
+                cursor="hand2",
+                command=lambda t=tab_id: self._switch_tab(t))
+            btn.pack(side="left")
+            self._tab_btns[tab_id] = btn
+
+        sep2 = tk.Frame(right, bg=BORDER, height=1)
+        sep2.pack(fill="x")
+
+        content = tk.Frame(right, bg=BG)
+        content.pack(fill="both", expand=True)
+
+        # Log tab
+        log_frame = tk.Frame(content, bg=BG)
+        self._tab_frames["log"] = log_frame
+
+        self._log_text = tk.Text(log_frame, bg=BG, fg=FG_DIM, font=_font(9),
+            relief="flat", bd=0, state="disabled", wrap="word",
+            highlightthickness=0, padx=16, pady=12)
+        log_scroll = tk.Scrollbar(log_frame, command=self._log_text.yview)
+        self._log_text.configure(yscrollcommand=log_scroll.set)
+        log_scroll.pack(side="right", fill="y")
         self._log_text.pack(fill="both", expand=True)
 
-        # Configure colour tags for the log
-        self._log_text.tag_configure("ok",  foreground=GREEN)
-        self._log_text.tag_configure("sim", foreground=YELLOW)
-        self._log_text.tag_configure("err", foreground=RED)
-        self._log_text.tag_configure("dim", foreground=FG_DIM)
-        self._log_text.tag_configure("hdr", foreground=ACCENT,
-                                      font=_font(9, "bold"))
+        self._log_text.tag_configure("ok",   foreground=GREEN)
+        self._log_text.tag_configure("warn", foreground=YELLOW)
+        self._log_text.tag_configure("err",  foreground=RED)
+        self._log_text.tag_configure("dim",  foreground=FG_DIM)
+        self._log_text.tag_configure("hdr",  foreground=ACCENT, font=_font(9,"bold"))
 
-    def _setup_keyboard_shortcuts(self) -> None:
-        """Add keyboard shortcuts for power users."""
-        # Ctrl/Cmd + O: Organize
-        self.bind('<Control-o>', lambda e: self._sort_now())
-        self.bind('<Command-o>', lambda e: self._sort_now())
-        
-        # Ctrl/Cmd + Z: Undo
-        self.bind('<Control-z>', lambda e: self._undo())
-        self.bind('<Command-z>', lambda e: self._undo())
-        
-        # Ctrl/Cmd + Q: Quit
-        self.bind('<Control-q>', lambda e: self.quit())
-        self.bind('<Command-q>', lambda e: self.quit())
-        
-        # Ctrl/Cmd + B: Browse folder
-        self.bind('<Control-b>', lambda e: self._browse())
-        self.bind('<Command-b>', lambda e: self._browse())
-        
-        # Ctrl/Cmd + L: Clear log
-        self.bind('<Control-l>', lambda e: self._clear_log())
-        self.bind('<Command-l>', lambda e: self._clear_log())
+        # History tab
+        hist_frame = tk.Frame(content, bg=BG)
+        self._tab_frames["history"] = hist_frame
+        self._build_history_tab(hist_frame)
 
-    # -----------------------------------------------------------------
-    # Log helpers
-    # -----------------------------------------------------------------
+        # Stats tab
+        stats_frame = tk.Frame(content, bg=BG)
+        self._tab_frames["stats"] = stats_frame
+        self._stats_frame_ref = stats_frame
 
-    def _poll_log_queue(self) -> None:
-        """Drain the log queue into the Text widget. Runs on the main thread."""
+        # Review Queue tab
+        review_frame = tk.Frame(content, bg=BG)
+        self._tab_frames["review"] = review_frame
+        self._build_review_tab(review_frame)
+
+        # Status bar
+        self._status_bar = tk.Label(right, text="Ready to organize",
+            font=_font(9), fg=FG_DIM, bg=SURFACE, pady=6)
+        self._status_bar.pack(side="bottom", fill="x")
+        tk.Frame(right, bg=BORDER, height=1).pack(side="bottom", fill="x")
+
+        self._switch_tab("log")
+
+    def _switch_tab(self, tab_id: str):
+        for tid, frame in self._tab_frames.items():
+            frame.pack_forget()
+        self._tab_frames[tab_id].pack(fill="both", expand=True)
+        for tid, btn in self._tab_btns.items():
+            if tid == tab_id:
+                btn.configure(fg=ACCENT, font=_font(10,"bold"))
+            else:
+                btn.configure(fg=FG_DIM, font=_font(10))
+        self._active_tab.set(tab_id)
+        if tab_id == "history":
+            self._refresh_history()
+        if tab_id == "review":
+            self._refresh_review()
+
+    # ------------------------------------------------------------------ History
+
+    def _build_history_tab(self, parent):
+        self._hist_inner = tk.Frame(parent, bg=BG)
+        self._hist_inner.pack(fill="both", expand=True)
+
+        self._hist_canvas = tk.Canvas(self._hist_inner, bg=BG,
+                                       highlightthickness=0)
+        self._hist_scroll = tk.Scrollbar(self._hist_inner,
+                                          command=self._hist_canvas.yview)
+        self._hist_canvas.configure(yscrollcommand=self._hist_scroll.set)
+        self._hist_scroll.pack(side="right", fill="y")
+        self._hist_canvas.pack(side="left", fill="both", expand=True)
+
+        self._hist_container = tk.Frame(self._hist_canvas, bg=BG)
+        self._hist_canvas_window = self._hist_canvas.create_window(
+            (0,0), window=self._hist_container, anchor="nw")
+        self._hist_container.bind("<Configure>", lambda e: self._hist_canvas.configure(
+            scrollregion=self._hist_canvas.bbox("all")))
+        self._hist_canvas.bind("<Configure>", lambda e: self._hist_canvas.itemconfig(
+            self._hist_canvas_window, width=e.width))
+
+    def _refresh_history(self):
+        for w in self._hist_container.winfo_children():
+            w.destroy()
+
+        target = Path(self._target_var.get()).expanduser().resolve()
+        history = _load_manifest(target)
+
+        if not history:
+            tk.Label(self._hist_container, text="No runs recorded yet.",
+                     font=_font(11), fg=FG_DIM, bg=BG, pady=40).pack()
+            return
+
+        for i, run in enumerate(reversed(history)):
+            ts    = run.get("timestamp","unknown")
+            moves = run.get("moves", [])
+            self._build_history_card(self._hist_container, ts, moves, i)
+
+    def _build_history_card(self, parent, ts, moves, idx):
+        card = tk.Frame(parent, bg=SURFACE, padx=16, pady=12)
+        card.pack(fill="x", padx=16, pady=(12,0) if idx==0 else (6,0))
+
+        top = tk.Frame(card, bg=SURFACE)
+        top.pack(fill="x")
+        tk.Label(top, text=f"📁  Run — {ts}", font=_font(10,"bold"),
+                 fg=FG, bg=SURFACE).pack(side="left")
+        tk.Label(top, text=f"{len(moves)} files", font=_font(9),
+                 fg=FG_DIM, bg=SURFACE).pack(side="right")
+
+        # Category breakdown
+        cats: dict[str,int] = {}
+        for m in moves:
+            dest = Path(m.get("dest",""))
+            cat  = dest.parent.name if dest.parent.name else "Others"
+            cats[cat] = cats.get(cat, 0) + 1
+
+        summary = "  ·  ".join(f"{c}: {n}" for c,n in
+                                sorted(cats.items(), key=lambda x:-x[1])[:4])
+        if summary:
+            tk.Label(card, text=summary, font=_font(9), fg=FG_DIM, bg=SURFACE).pack(anchor="w",pady=(4,0))
+
+    # ------------------------------------------------------------------ Stats card
+
+    def _show_stats_card(self, stats: Stats, dry_run: bool):
+        frame = self._stats_frame_ref
+        for w in frame.winfo_children():
+            w.destroy()
+
+        action = "would be organized" if dry_run else "organized"
+        title  = "Preview Results" if dry_run else "✅  Done!"
+
+        tk.Label(frame, text=title, font=_font(18,"bold"),
+                 fg=FG, bg=BG, pady=20).pack()
+        tk.Label(frame, text=f"{stats.total_files()} files {action}",
+                 font=_font(13), fg=FG_DIM, bg=BG).pack()
+
+        if stats._data:
+            table = tk.Frame(frame, bg=SURFACE, padx=20, pady=16)
+            table.pack(padx=32, pady=16, fill="x")
+
+            sorted_cats = sorted(stats._data.items(), key=lambda kv:-kv[1]["count"])
+            for cat, data in sorted_cats[:8]:
+                row = tk.Frame(table, bg=SURFACE)
+                row.pack(fill="x", pady=2)
+                tk.Label(row, text=cat, font=_font(10), fg=FG,
+                         bg=SURFACE, width=18, anchor="w").pack(side="left")
+                bar_w = max(4, int(80 * data["count"] / max(1, stats.total_files())))
+                bar = tk.Frame(row, bg=ACCENT if not dry_run else YELLOW,
+                               height=8, width=bar_w)
+                bar.pack(side="left", padx=(8,4))
+                bar.pack_propagate(False)
+                tk.Label(row, text=str(data["count"]), font=_font(9),
+                         fg=FG_DIM, bg=SURFACE).pack(side="left")
+
+        if stats.errors:
+            tk.Label(frame, text=f"⚠  {stats.errors} error(s) — check Activity Log",
+                     font=_font(10), fg=RED, bg=BG).pack()
+
+        tk.Button(frame, text="Back to Log", font=_font(10), fg=ACCENT,
+                  bg=BG, relief="flat", bd=0, padx=12, pady=8,
+                  cursor="hand2",
+                  command=lambda: self._switch_tab("log")).pack(pady=8)
+
+        self._switch_tab("stats")
+
+    # ------------------------------------------------------------------ Review Queue
+
+    def _build_review_tab(self, parent):
+        """Scrollable list of files in __Review__/ that need user confirmation."""
+        self._review_inner  = tk.Frame(parent, bg=BG)
+        self._review_inner.pack(fill="both", expand=True)
+
+        self._review_canvas = tk.Canvas(self._review_inner, bg=BG, highlightthickness=0)
+        self._review_scroll = tk.Scrollbar(self._review_inner,
+                                            command=self._review_canvas.yview)
+        self._review_canvas.configure(yscrollcommand=self._review_scroll.set)
+        self._review_scroll.pack(side="right", fill="y")
+        self._review_canvas.pack(side="left", fill="both", expand=True)
+
+        self._review_container = tk.Frame(self._review_canvas, bg=BG)
+        self._review_canvas_win = self._review_canvas.create_window(
+            (0, 0), window=self._review_container, anchor="nw")
+        self._review_container.bind("<Configure>", lambda e:
+            self._review_canvas.configure(scrollregion=self._review_canvas.bbox("all")))
+        self._review_canvas.bind("<Configure>", lambda e:
+            self._review_canvas.itemconfig(self._review_canvas_win, width=e.width))
+
+    def _refresh_review(self):
+        for w in self._review_container.winfo_children():
+            w.destroy()
+
+        target  = Path(self._target_var.get()).expanduser().resolve()
+        rev_dir = target / "__Review__"
+
+        if not rev_dir.exists() or not any(rev_dir.iterdir()):
+            tk.Label(self._review_container,
+                     text="✅  Nothing in Review — all files classified confidently.",
+                     font=_font(11), fg=FG_DIM, bg=BG, pady=40).pack()
+            return
+
+        tk.Label(self._review_container,
+                 text="These files had low confidence. Confirm the correct folder:",
+                 font=_font(10), fg=FG_DIM, bg=BG, padx=16, pady=8).pack(anchor="w")
+
+        for item in sorted(rev_dir.iterdir()):
+            if item.is_file() and not item.name.startswith("."):
+                self._build_review_card(self._review_container, item, target)
+
+    def _build_review_card(self, parent, item: Path, target: Path):
+        card = tk.Frame(parent, bg=SURFACE, padx=14, pady=10)
+        card.pack(fill="x", padx=16, pady=(8, 0))
+
+        top = tk.Frame(card, bg=SURFACE)
+        top.pack(fill="x")
+        tk.Label(top, text=item.name, font=_font(10, "bold"),
+                 fg=FG, bg=SURFACE).pack(side="left")
+        tk.Label(top, text=f"{item.suffix.upper()} • {self._human_size(item)}",
+                 font=_font(9), fg=FG_DIM, bg=SURFACE).pack(side="right")
+
+        # Suggest categories based on extension + common guesses
+        cats = list(load_categories(None).keys())[:6]
+        btn_row = tk.Frame(card, bg=SURFACE)
+        btn_row.pack(fill="x", pady=(6, 0))
+        for cat in cats:
+            tk.Button(
+                btn_row, text=cat,
+                font=_font(9), fg=ACCENT, bg=BG,
+                relief="flat", bd=0, padx=6, pady=3,
+                cursor="hand2",
+                command=lambda i=item, c=cat, t=target: self._confirm_category(i, c, t),
+            ).pack(side="left", padx=(0, 4))
+
+    def _confirm_category(self, item: Path, category: str, target: Path):
+        """Move a Review file to the chosen category and record feedback."""
+        import shutil
+        dest_dir  = target / category
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = dest_dir / item.name
+        try:
+            shutil.move(str(item), str(dest_path))
+            self._log(f"✓  Review resolved: {item.name}  →  {category}/  [USER]", "ok")
+            # Record correction in learning store
+            if self._learning_store is not None:
+                try:
+                    self._learning_store.record(
+                        path=item,
+                        predicted="__Review__",
+                        confirmed=category,
+                        confidence=0.0,
+                        layer="user_review",
+                    )
+                except Exception:
+                    pass
+            self._refresh_review()
+        except Exception as exc:
+            self._log(f"✗  Could not move {item.name}: {exc}", "err")
+
+    @staticmethod
+    def _human_size(path: Path) -> str:
+        try:
+            b = path.stat().st_size
+            for u in ("B","KB","MB","GB"):
+                if b < 1024: return f"{b:.0f} {u}"
+                b /= 1024
+            return f"{b:.1f} GB"
+        except Exception:
+            return "?"
+
+    # ------------------------------------------------------------------ Pulse
+
+    def _start_pulse(self):
+        self._pulse_active = True
+        self._do_pulse(True)
+
+    def _do_pulse(self, on: bool):
+        if not self._pulse_active:
+            self._pulse_label.configure(text="● Idle", fg=FG_DIM)
+            return
+        self._pulse_label.configure(
+            text="● Watching" if on else "○ Watching",
+            fg=GREEN if on else FG_DIM)
+        self._pulse_id = self.after(700, self._do_pulse, not on)
+
+    def _stop_pulse(self):
+        self._pulse_active = False
+        if self._pulse_id:
+            self.after_cancel(self._pulse_id)
+        self._pulse_label.configure(text="● Idle", fg=FG_DIM)
+
+    # ------------------------------------------------------------------ Log
+
+    def _poll_log_queue(self):
         try:
             while True:
                 msg = self._log_queue.get_nowait()
                 if msg == "__DONE__":
                     self._set_buttons_enabled(True)
-                    self._set_status("Ready.")
+                    self._status_bar.configure(text="Ready.")
                     continue
                 if msg == "__WATCH_DONE__":
                     continue
-                # Tag selection
-                if msg.startswith("✓"):
-                    tag = "ok"
-                elif msg.startswith("[SIM]"):
-                    tag = "sim"
-                elif msg.startswith("✗") or msg.startswith("⚠"):
-                    tag = "err"
-                elif msg.startswith("──") or msg.startswith("ARISE-I"):
-                    tag = "hdr"
-                else:
-                    tag = ""
-                self._log(msg, tag)
+                if msg == "__HEALTH_RETRAIN__":
+                    self._log("🧠  Retraining model…", "hdr")
+                    continue
+                if isinstance(msg, tuple) and msg[0] == "__STATS__":
+                    self._show_stats_card(msg[1], msg[2])
+                    continue
+                # Determine log tag
+                tag = "ok"   if msg.startswith("✓") or msg.startswith("✅") else \
+                      "warn" if (msg.startswith("⚠") or msg.startswith("[SIM]") or
+                                 msg.startswith("⚡") or msg.startswith("♥")) else \
+                      "err"  if msg.startswith("✗") else \
+                      "hdr"  if (msg.startswith("ARISE-I") or msg.startswith("──")
+                                 or msg.startswith("🧠") or msg.startswith("⚔️")) else ""
+                # Colour-code confidence badges inline
+                if "[HIGH]" in msg:  tag = "ok"
+                elif "[LOW]" in msg: tag = "warn"
+                ts = datetime.now().strftime("%H:%M:%S")
+                self._log(f"[{ts}]  {msg}", tag)
         except queue.Empty:
             pass
         self.after(50, self._poll_log_queue)
 
-    def _log(self, message: str, tag: str = "") -> None:
-        """Append a line to the log text widget (must be called from main thread)."""
+    def _log(self, message: str, tag: str = ""):
         self._log_text.configure(state="normal")
         self._log_text.insert("end", message + "\n", tag)
         self._log_text.see("end")
         self._log_text.configure(state="disabled")
 
-    def _clear_log(self) -> None:
-        self._log_text.configure(state="normal")
-        self._log_text.delete("1.0", "end")
-        self._log_text.configure(state="disabled")
-
-    def _log_separator(self) -> None:
-        self._log("─" * 52, "dim")
-
-    def _show_help(self) -> None:
-        """Show keyboard shortcuts help dialog."""
-        help_text = """Keyboard Shortcuts:
-
-Ctrl/Cmd + O   Organize files
-Ctrl/Cmd + Z   Undo last organization
-Ctrl/Cmd + B   Browse folder
-Ctrl/Cmd + L   Clear log
-Ctrl/Cmd + Q   Quit application
-
-Tips:
-• Enable auto-sort to automatically organize new files
-• Click 'Change' to organize a different folder
-• Use 'Undo Last' to reverse any organization
-• Files are never deleted, only organized
-"""
-        messagebox.showinfo("Keyboard Shortcuts", help_text)
-
-    def _set_status(self, text: str) -> None:
-        self._status_label.configure(text=text)
-
-    # -----------------------------------------------------------------
-    # Log queue polling (thread-safe bridge)
-    # -----------------------------------------------------------------
-
-    def _enqueue_log(self, message: str) -> None:
-        """Called from worker threads — safe to call from any thread."""
+    def _enqueue_log(self, message: str):
         self._log_queue.put(message)
 
+    def _set_status(self, text: str):
+        self._status_bar.configure(text=text)
 
+    # ------------------------------------------------------------------ Actions
 
-    # -----------------------------------------------------------------
-    # Button: Browse
-    # -----------------------------------------------------------------
-
-    def _browse(self) -> None:
-        if self._watching:
-            messagebox.showinfo(
-                "Auto-sort is running",
-                "Turn off Auto-sort before choosing a different folder.",
-                parent=self,
-            )
-            return
-        folder = filedialog.askdirectory(
-            title="Select folder to organize",
-            initialdir=self._target_var.get(),
-        )
+    def _run_onboarding(self):
+        folder = onboarding.run_if_needed(self)
         if folder:
             self._target_var.set(folder)
+            self._log(f"Folder set to: {Path(folder).name}", "dim")
+
+    def _browse(self):
+        if self._watching:
+            messagebox.showinfo("Auto-sort running",
+                "Turn off Auto-sort before changing folder.", parent=self)
+            return
+        folder = filedialog.askdirectory(title="Select folder to organize",
+                                          initialdir=self._target_var.get())
+        if folder:
+            self._target_var.set(folder)
+            set_pref("last_folder", folder)
             self._log(f"Folder changed to: {Path(folder).name}", "dim")
 
-    def _toggle_auto_sort(self) -> None:
-        if self._auto_sort_var.get():
-            if not WATCHDOG_AVAILABLE:
-                self._log("⚠  Auto-sort requires watchdog (pip install watchdog)", "err")
-                self._auto_sort_var.set(False)
-                return
-            self._start_watch()
-        else:
-            self._stop_watch()
-
-    # -----------------------------------------------------------------
-    # Button: Sort Now
-    # -----------------------------------------------------------------
-
-    def _preview(self) -> None:
-        """Show the user what ARISE-I would do without moving any files."""
+    def _preview(self):
         self._run_organization(dry_run=True)
 
-    def _sort_now(self) -> None:
-        """Confirm a live organization run before moving the user's files."""
+    def _sort_now(self):
         target = self._target_var.get().strip()
         if target and not messagebox.askyesno(
             "Organize this folder?",
-            "ARISE-I will sort the files in:\n\n"
-            f"{Path(target).expanduser()}\n\n"
-            "No files will be deleted, and you can undo this run afterwards.",
+            f"ARISE-I will sort:\n\n{Path(target).expanduser()}\n\n"
+            "Nothing is deleted. You can undo afterwards.",
             parent=self,
         ):
             return
         self._run_organization(dry_run=False)
 
-    def _run_organization(self, dry_run: bool) -> None:
+    def _run_organization(self, dry_run: bool):
         target = self._target_var.get().strip()
         if not target:
-            messagebox.showerror("No folder selected",
-                                 "Please select a folder to organize.")
-            return
-        
-        target_path = Path(target).expanduser()
-        if not target_path.exists():
-            messagebox.showerror("Folder not found",
-                                 f"The folder does not exist:\n{target}")
-            return
-
-        if not target_path.is_dir():
-            messagebox.showerror("Not a folder",
-                                 f"The path is not a folder:\n{target}")
-            return
-
-        # A file organizer should never be pointed at a whole user account or
-        # filesystem by accident. Downloads and other subfolders remain safe.
-        if target_path == target_path.anchor or target_path == Path.home().resolve():
-            messagebox.showerror(
-                "Choose a specific folder",
-                "For your safety, ARISE-I cannot organize your entire home folder "
-                "or the whole drive. Choose Downloads, Desktop, or another specific folder.",
-                parent=self,
-            )
-            return
+            messagebox.showerror("No folder", "Please select a folder."); return
+        tp = Path(target).expanduser()
+        if not tp.exists():
+            messagebox.showerror("Not found", f"Folder not found:\n{target}"); return
+        if not tp.is_dir():
+            messagebox.showerror("Not a folder", f"Not a folder:\n{target}"); return
+        if tp == Path(tp.anchor) or tp == Path.home().resolve():
+            messagebox.showerror("Safety",
+                "Choose a subfolder (Downloads, Desktop, etc.), not the whole drive.",
+                parent=self); return
 
         self._set_buttons_enabled(False)
-        self._set_status("Previewing changes…" if dry_run else "Organizing…")
-        self._log("🔎  Previewing changes" if dry_run else "✨  Starting organization", "hdr")
+        self._set_status("Previewing…" if dry_run else "Organizing…")
+        self._switch_tab("log")
+        self._log("🔎  Previewing changes" if dry_run else "✨  Organizing files", "hdr")
 
         def _worker():
             try:
-                categories = load_categories(None)
-                stats: Stats = organize_folder(
-                    target,
-                    dry_run=dry_run,
-                    categories=categories,
+                stats = organize_folder(target, dry_run=dry_run,
+                    categories=load_categories(None),
                     log_callback=self._enqueue_log,
-                )
-                # Summary lines
+                    learning_store=self._learning_store)
                 action = "would be organized" if dry_run else "organized"
                 self._log_queue.put(f"✓  Done! {stats.total_files()} file(s) {action}")
-                if stats.skipped:
-                    self._log_queue.put(f"   {stats.skipped} skipped")
-                if stats.errors:
-                    self._log_queue.put(f"   {stats.errors} error(s)")
+                if stats.skipped: self._log_queue.put(f"   {stats.skipped} skipped")
+                if stats.errors:  self._log_queue.put(f"   {stats.errors} error(s)")
+                self._log_queue.put(("__STATS__", stats, dry_run))
             except Exception as e:
-                self._log_queue.put(f"✗  Error: {str(e)}")
-                self._log_queue.put("   Please check the folder and try again")
+                self._log_queue.put(f"✗  Error: {e}")
             finally:
-                # Re-enable from main thread via queue sentinel
                 self._log_queue.put("__DONE__")
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    # -----------------------------------------------------------------
-    # Auto-sort / Watch functionality
-    # -----------------------------------------------------------------
+    def _toggle_auto_sort(self):
+        if self._auto_sort_var.get():
+            if not WATCHDOG_AVAILABLE:
+                self._log("⚠  Auto-sort needs: pip install watchdog", "warn")
+                self._auto_sort_var.set(False); return
+            self._start_watch()
+        else:
+            self._stop_watch()
 
-    def _start_watch(self) -> None:
+    def _start_watch(self):
         if not WATCHDOG_AVAILABLE:
-            messagebox.showerror(
-                "watchdog not installed",
-                "Auto-sort requires the watchdog package.\n\n"
-                "Run this in your terminal:\n"
-                "    pip install watchdog",
-            )
-            return
-
+            messagebox.showerror("watchdog missing",
+                "Run: pip install watchdog"); return
         target = self._target_var.get().strip()
         if not target or not Path(target).expanduser().exists():
-            messagebox.showerror("Folder not found",
-                                 f"The folder does not exist:\n{target}")
-            return
+            messagebox.showerror("Not found", f"Folder not found:\n{target}"); return
 
         self._watching = True
         self._watch_stop.clear()
         self._sort_btn.configure(state="disabled")
         self._set_status(f"Auto-sorting {Path(target).name}…")
         self._log("🔄  Auto-sort enabled", "hdr")
+        self._start_pulse()
 
-        debounce   = self._debounce_var.get()
-        # Validate debounce value
-        if debounce < 0.1:
-            debounce = 0.1
-            self._debounce_var.set(debounce)
-        elif debounce > 300.0:
-            debounce = 300.0
-            self._debounce_var.set(debounce)
-        dry_run    = self._dry_run_var.get()
-        categories = load_categories(None)
+        debounce = max(0.1, min(300.0, self._debounce_var.get()))
+        cats     = load_categories(None)
 
         def _worker():
-            # Use the already-imported Observer (safe because we checked
-            # WATCHDOG_AVAILABLE before entering this branch)
-            from watchdog.observers import Observer as _Observer
-            from file_watcher import AriseIEventHandler
+            from watchdog.observers import Observer as _Obs
+            from file_watcher import AriseIEventHandler as _H
 
-            # Override the handler's _run_organizer to use log_callback
-            class _GUIHandler(AriseIEventHandler):
-                def _run_organizer(inner_self):
-                    self._log_queue.put("📁  New files detected, organizing…")
-                    cats = load_categories(None)
-                    s = organize_folder(
-                        str(inner_self.target_dir),
-                        dry_run=inner_self.dry_run,
-                        categories=cats,
-                        log_callback=self._enqueue_log,
-                    )
+            class _GUIHandler(_H):
+                def _run_organizer(inner):
+                    self._log_queue.put("📁  New files — organizing…")
+                    s = organize_folder(str(inner.target_dir),
+                        dry_run=inner.dry_run,
+                        categories=load_categories(None),
+                        log_callback=self._enqueue_log)
                     self._log_queue.put(f"✓  {s.total_files()} file(s) organized")
 
-            from pathlib import Path as _Path
-            handler  = _GUIHandler(
-                target_dir=_Path(target).expanduser().resolve(),
-                debounce=debounce,
-                dry_run=dry_run,
-                categories=categories,
-            )
-            observer = _Observer()
+            handler  = _GUIHandler(target_dir=Path(target).expanduser().resolve(),
+                                   debounce=debounce, dry_run=False, categories=cats)
+            observer = _Obs()
             observer.schedule(handler, str(handler.target_dir), recursive=False)
             observer.start()
-
-            import time
             while not self._watch_stop.is_set():
                 time.sleep(0.5)
-
-            try:
-                handler._timer.cancel()
-            except Exception:  # pragma: no cover
-                pass
+            try: handler._timer.cancel()
+            except Exception: pass
             observer.stop()
-            if observer.is_alive():
-                observer.join(timeout=5)
+            if observer.is_alive(): observer.join(timeout=5)
             self._log_queue.put("🛑  Auto-sort stopped")
             self._log_queue.put("__WATCH_DONE__")
 
         self._watch_thread = threading.Thread(target=_worker, daemon=True)
         self._watch_thread.start()
 
-    def _stop_watch(self) -> None:
+    def _stop_watch(self):
         self._watch_stop.set()
         self._watching = False
         self._sort_btn.configure(state="normal")
         self._set_status("Ready to organize")
+        self._stop_pulse()
 
-    def _on_close(self) -> None:
-        """Stop the file observer before closing the desktop app."""
-        if self._watching:
-            self._stop_watch()
-        self.destroy()
-
-    # -----------------------------------------------------------------
-    # Button: Undo
-    # -----------------------------------------------------------------
-
-    def _undo(self) -> None:
+    def _undo(self):
         target = self._target_var.get().strip()
         if not target:
-            messagebox.showerror("No folder selected",
-                                 "Please select a folder to undo.")
-            return
-
-        target_path = Path(target).expanduser()
-        if not target_path.exists():
-            messagebox.showerror("Folder not found",
-                                 f"The folder does not exist:\n{target}")
-            return
+            messagebox.showerror("No folder", "Please select a folder."); return
+        tp = Path(target).expanduser()
+        if not tp.exists():
+            messagebox.showerror("Not found", f"Folder not found:\n{target}"); return
 
         self._set_buttons_enabled(False)
-        self._set_status("Undoing last organization…")
+        self._set_status("Undoing last run…")
         self._log("↩  Undoing last organization", "hdr")
 
         def _worker():
             try:
-                # Capture stdout-ish output for the GUI log
-                # (undo_last_run prints to stdout; we redirect via a simple shim)
                 import io, contextlib
                 buf = io.StringIO()
                 with contextlib.redirect_stdout(buf):
                     undo_last_run(target)
-                output = buf.getvalue()
-                for line in output.splitlines():
-                    stripped = line.strip()
-                    if stripped:
-                        self._log_queue.put(stripped)
+                for line in buf.getvalue().splitlines():
+                    if line.strip():
+                        self._log_queue.put(line.strip())
+                self._refresh_history()
             except Exception as e:
-                self._log_queue.put(f"✗  Error: {str(e)}")
-                self._log_queue.put("   Could not undo. Check the folder history.")
+                self._log_queue.put(f"✗  Error: {e}")
             finally:
                 self._log_queue.put("__DONE__")
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    # -----------------------------------------------------------------
-    # Queue sentinel handling (re-enable buttons after job finishes)
-    # -----------------------------------------------------------------
-
-    def _set_buttons_enabled(self, enabled: bool) -> None:
+    def _set_buttons_enabled(self, enabled: bool):
         state = "normal" if enabled else "disabled"
         self._sort_btn.configure(state=state)
         self._preview_btn.configure(state=state)
         self._undo_btn.configure(state=state)
-        # Only disable auto-check when organization is in progress
         if not self._watching:
             self._auto_check.configure(state=state)
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
+    def _setup_shortcuts(self):
+        for key in ("<Control-o>","<Command-o>"):   self.bind(key, lambda e: self._sort_now())
+        for key in ("<Control-z>","<Command-z>"):   self.bind(key, lambda e: self._undo())
+        for key in ("<Control-q>","<Command-q>"):   self.bind(key, lambda e: self.quit())
+        for key in ("<Control-b>","<Command-b>"):   self.bind(key, lambda e: self._browse())
 
-def main() -> None:
+    def _on_close(self):
+        if self._watching:
+            self._stop_watch()
+        if self._health_monitor is not None:
+            self._health_monitor.stop()
+        prefs = load_prefs()
+        prefs["last_folder"] = self._target_var.get()
+        prefs["debounce"]    = self._debounce_var.get()
+        prefs["theme"]       = self._theme
+        save_prefs(prefs)
+        self.destroy()
+
+
+def main():
     app = AriseIApp()
     app.mainloop()
-
 
 if __name__ == "__main__":
     main()

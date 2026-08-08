@@ -54,6 +54,21 @@ except ImportError:  # pragma: no cover — only missing during isolated unit te
     def classify_with_plugins(path, plugins): return None  # type: ignore[misc]
     def load_plugins(plugin_dir=None): return []  # type: ignore[misc]
 
+try:
+    from classifier import SmartClassifier, get_classifier
+    _CLASSIFIER_AVAILABLE = True
+except ImportError:
+    _CLASSIFIER_AVAILABLE = False
+    SmartClassifier = None   # type: ignore[assignment,misc]
+    get_classifier  = None   # type: ignore[assignment,misc]
+
+try:
+    from learning_store import LearningStore
+    _LEARNING_AVAILABLE = True
+except ImportError:
+    _LEARNING_AVAILABLE = False
+    LearningStore = None     # type: ignore[assignment,misc]
+
 
 # ---------------------------------------------------------------------------
 # Terminal colour helpers
@@ -502,6 +517,8 @@ def organize_folder(
     categories: dict[str, list[str]] | None = None,
     log_callback=None,
     plugins: "list | None" = None,
+    confidence_threshold: float = 0.75,
+    learning_store=None,
 ) -> Stats:
     """Scan *target_dir* and move files into category sub-folders.
 
@@ -546,6 +563,14 @@ def organize_folder(
     stats   = Stats()
     moves: list[dict] = []  # populated only during live runs (for undo log)
 
+    # Instantiate AI classifier (falls back gracefully if classifier.py absent)
+    _smart: SmartClassifier | None = None
+    if _CLASSIFIER_AVAILABLE and get_classifier is not None:
+        try:
+            _smart = get_classifier(categories, confidence_threshold)
+        except Exception as _exc:
+            logger.warning("SmartClassifier init failed (%s) — using ext_map fallback.", _exc)
+
     print(f"{Color.CYAN}ARISE-I >> Target acquired: {target_path}{Color.RESET}\n")
 
     # Sort entries for deterministic, reproducible output across runs
@@ -579,13 +604,30 @@ def organize_folder(
             continue
 
         # --- Determine category ---------------------------------------------
-        # 1. Try user-supplied classifier plugins first (Roadmap 3)
+        # Priority: plugins → SmartClassifier (AI) → ext_map fallback
         plugin_category: str | None = None
         if plugins:
             plugin_category = classify_with_plugins(item, plugins)
 
-        ext      = item.suffix.lower()
-        raw_category = plugin_category if plugin_category else ext_map.get(ext, "Others")
+        # AI classification path
+        _confidence = 1.0
+        _badge      = "PLUGIN"
+        _layer      = "plugin"
+        if plugin_category:
+            raw_category = plugin_category
+        elif _smart is not None:
+            _result      = _smart.classify(item)
+            raw_category = _result.category
+            _confidence  = _result.confidence
+            _badge       = _result.badge
+            _layer       = _result.layer
+        else:
+            # Legacy ext_map fallback (no classifier.py)
+            ext          = item.suffix.lower()
+            raw_category = ext_map.get(ext, "Others")
+            _badge       = "EXT"
+            _layer       = "extension"
+
         category = _sanitize_category_name(raw_category)
 
         # Try to get file size (safe — file may be 0 bytes or unreadable)
@@ -607,10 +649,12 @@ def organize_folder(
                 f"  {Color.YELLOW}[SIMULATION]{Color.RESET} "
                 f"{item.name}  {Color.DIM}→{Color.RESET}  "
                 f"{Color.CYAN}{category}/{Color.RESET}{dedup_note}"
+                f"  {Color.DIM}[{_badge} {_confidence:.0%}]{Color.RESET}"
             )
-            logger.info("[DRY-RUN] Would move: %s -> %s/", item.name, category)
+            logger.info("[DRY-RUN] Would move: %s -> %s/ (conf=%.2f layer=%s)",
+                        item.name, category, _confidence, _layer)
             if log_callback:
-                log_callback(f"[SIM]  {item.name}  →  {category}/{dedup_note}")
+                log_callback(f"[SIM]  {item.name}  →  {category}/{dedup_note}  [{_badge} {_confidence:.0%}]")
             stats.record(category, size_bytes)
             continue
 
@@ -624,18 +668,38 @@ def organize_folder(
                 if dest_path.name != item.name
                 else ""
             )
+            # Colour-code uncertain (Review) moves differently
+            _is_review = (category == SmartClassifier.REVIEW_FOLDER
+                          if SmartClassifier else False)
+            _color = Color.YELLOW if _is_review else Color.GREEN
+            _icon  = "⚠" if _is_review else "✓"
             print(
-                f"  {Color.GREEN}✓ Relocated:{Color.RESET} "
+                f"  {_color}{_icon} Relocated:{Color.RESET} "
                 f"{item.name}  →  {Color.CYAN}{category}/{Color.RESET}"
-                f"{Color.DIM}{dedup_note}{Color.RESET}"
+                f"  {Color.DIM}[{_badge} {_confidence:.0%}]{dedup_note}{Color.RESET}"
             )
-            logger.info("Moved: %s -> %s", item, dest_path)
+            logger.info("Moved: %s -> %s (conf=%.2f layer=%s)",
+                        item, dest_path, _confidence, _layer)
             if log_callback:
-                log_callback(f"✓  {item.name}  →  {category}/{dedup_note}")
+                log_callback(f"{_icon}  {item.name}  →  {category}/{dedup_note}  [{_badge} {_confidence:.0%}]")
             stats.record(category, size_bytes)
 
             # Record the move for undo support
-            moves.append({"src": str(item), "dest": str(dest_path)})
+            moves.append({"src": str(item), "dest": str(dest_path),
+                          "confidence": _confidence, "layer": _layer})
+
+            # Feed learning store (non-blocking — errors are logged, never raised)
+            if learning_store is not None:
+                try:
+                    learning_store.record(
+                        path=item,
+                        predicted=category,
+                        confirmed=category,   # will be corrected via Review tab
+                        confidence=_confidence,
+                        layer=_layer,
+                    )
+                except Exception as _le:
+                    logger.debug("Learning store record failed: %s", _le)
 
         except PermissionError as exc:
             msg = f"Permission denied — skipped {item.name}: {exc}"
