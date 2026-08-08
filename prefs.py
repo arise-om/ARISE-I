@@ -2,7 +2,7 @@
 ARISE-I — Preferences Manager
 ------------------------------
 Autonomous File Organization Unit: User Preferences.
-Built by Om // Ironlabs.tech
+Built by Om Deshmukh // Ironlabs.tech
 
 Persists user settings between sessions to ~/.arise-i/prefs.json.
 

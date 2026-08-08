@@ -2,7 +2,7 @@
 ARISE-I — First-Run Onboarding Wizard
 --------------------------------------
 Autonomous File Organization Unit: Welcome Screen.
-Built by Om // Ironlabs.tech
+Built by Om Deshmukh // Ironlabs.tech
 
 Shown exactly once on first launch (when prefs.onboarding_done is False).
 After the user completes it, prefs.onboarding_done is set to True and
