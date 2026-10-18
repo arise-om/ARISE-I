@@ -36,25 +36,30 @@ pytest tests/ -v
 
 ```
 ARISE-I/
-├── classifier.py        AI classification engine (4-layer)
-├── learning_store.py    Feedback log + model retraining
-├── health_monitor.py    Self-healing background daemon
-├── file_organizer.py    Core sort orchestrator
-├── file_watcher.py      Auto-sort watchdog daemon
-├── gui.py               Tkinter dashboard
-├── plugin_loader.py     Plugin sandbox system
-├── prefs.py             Preference read/write
-├── onboarding.py        First-run wizard
-├── tests/               pytest test suite
-│   ├── test_organizer.py
-│   ├── test_real_run.py
-│   ├── test_watcher.py
-│   └── ...
-├── install.sh           Linux/macOS installer
-├── install.bat          Windows installer
-├── pyproject.toml       Package metadata
-├── CHANGELOG.md         Release history
-└── PRODUCT_VISION.md    Roadmap and architecture docs
+├── file_organizer.py        Core sort orchestrator + CLI (main)
+├── classifier.py            AI classification engine (4-layer)
+├── assignment_classifier.py Assignment / lab / project filename parser
+├── learning_store.py        Feedback log + model retraining
+├── health_monitor.py        Self-healing background daemon
+├── file_watcher.py          Auto-sort watchdog daemon
+├── gui.py                   Tkinter dashboard
+├── plugin_loader.py         Plugin loader (~/.arise-i/plugins)
+├── prefs.py                 Preference read/write
+├── onboarding.py            First-run wizard
+├── tests/                   pytest suite (isolated HOME, see conftest.py)
+├── scripts/
+│   └── create_demo_files.py Demo sandbox generator
+├── docs/
+│   ├── PRODUCT_VISION.md    Roadmap and architecture
+│   ├── UPGRADE_PLAN.md      v2.1 audit findings + next-version plan
+│   ├── USER_GUIDE.md / QUICKSTART.md / LAUNCH.md
+├── install.sh / install.bat / start.sh / start.bat
+├── ARISE-I.iss              Inno Setup (Windows installer)
+├── pyproject.toml           Package metadata + ruff config
+└── CHANGELOG.md             Release history
+
+New runtime module?  Add it to `py-modules` in pyproject.toml — optional
+imports are wrapped in try/except, so a missing entry fails *silently*.
 ```
 
 ---

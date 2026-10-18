@@ -11,7 +11,7 @@ Keys used by the GUI:
     last_folder      : str    — Last folder the user organised
     debounce         : float  — Auto-sort debounce seconds
     window_geometry  : str    — Last window geometry string (e.g. "860x600+100+50")
-    theme            : str    — Reserved for future dark-mode support
+    theme            : str    — "light" or "dark" (toggled from the GUI header)
 """
 
 import json

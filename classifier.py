@@ -31,7 +31,7 @@ logger = logging.getLogger("arise_i.classifier")
 
 # ── Optional: byte-level MIME detection ─────────────────────────────────────
 try:
-    import filetype as _filetype
+    import filetype as _filetype  # noqa: F401
     _FILETYPE_AVAILABLE = True
 except ImportError:
     _FILETYPE_AVAILABLE = False
@@ -187,6 +187,7 @@ class SmartClassifier:
         self._ext_map              = self._build_ext_map()
         self._ml_pipeline: Optional[object] = None
         self._ml_labels:   list[str]        = []
+        self._model_mtime: Optional[float]  = None
         self._load_model()
 
     # ── setup ────────────────────────────────────────────────────────────────
@@ -198,8 +199,15 @@ class SmartClassifier:
                 m[ext.lower()] = cat
         return m
 
+    def _current_model_mtime(self) -> Optional[float]:
+        try:
+            return self._model_path.stat().st_mtime
+        except OSError:
+            return None
+
     def _load_model(self) -> None:
-        if not _SKLEARN_AVAILABLE or not self._model_path.exists():
+        self._model_mtime = self._current_model_mtime()
+        if not _SKLEARN_AVAILABLE or self._model_mtime is None:
             return
         try:
             import pickle as _pickle
@@ -207,7 +215,7 @@ class SmartClassifier:
                 data = _pickle.load(fh)
             if isinstance(data, dict) and "pipeline" in data:
                 self._ml_pipeline = data["pipeline"]
-                self._ml_labels   = data.get("labels", [])
+                self._ml_labels   = list(data.get("labels", []))
                 logger.info("ML model loaded (%d classes)", len(self._ml_labels))
         except Exception as exc:
             logger.warning("Could not load ML model: %s", exc)
@@ -217,6 +225,10 @@ class SmartClassifier:
         self._ml_pipeline = None
         self._ml_labels   = []
         self._load_model()
+
+    def model_is_stale(self) -> bool:
+        """True when model.pkl changed on disk since it was last loaded."""
+        return self._current_model_mtime() != self._model_mtime
 
     # ── public API ───────────────────────────────────────────────────────────
 
@@ -322,7 +334,7 @@ class SmartClassifier:
     def _by_heuristics(self, path: Path) -> ClassificationResult:
         for pattern, cat, conf in _HEURISTICS:
             if pattern.search(path.name):
-                cat = cat if cat in self.categories else "Documents"
+                cat = cat if cat in self.categories else "Others"
                 return ClassificationResult(category=cat, confidence=conf, layer="heuristic")
         return ClassificationResult(category="Others", confidence=0.05, layer="heuristic")
 
@@ -335,6 +347,10 @@ class SmartClassifier:
             best  = int(proba.argmax())
             conf  = float(proba[best])
             cat   = self._ml_labels[best]
+            if cat == self.REVIEW_FOLDER or cat not in self.categories:
+                # Models trained before v2.1 could learn the Review quarantine
+                # as a label, and a config change can remove a category.
+                return ClassificationResult(category="Others", confidence=0.05, layer="ml_model")
             alts  = sorted(
                 [(self._ml_labels[i], float(proba[i]))
                  for i in range(len(proba)) if i != best],
@@ -357,11 +373,20 @@ def get_classifier(
     categories: dict[str, list[str]],
     confidence_threshold: float = 0.75,
 ) -> SmartClassifier:
-    """Return a shared SmartClassifier instance (recreated on category change)."""
+    """Return a shared SmartClassifier instance (recreated on category change).
+
+    The shared instance picks up a retrained model.pkl automatically, so a
+    retrain from the learning store or health monitor takes effect on the
+    very next run instead of after an app restart.
+    """
     global _singleton
     if _singleton is None or _singleton.categories != categories:
         _singleton = SmartClassifier(
             categories=categories,
             confidence_threshold=confidence_threshold,
         )
+    else:
+        _singleton.confidence_threshold = confidence_threshold
+        if _singleton.model_is_stale():
+            _singleton.reload_model()
     return _singleton

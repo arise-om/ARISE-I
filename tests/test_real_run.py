@@ -122,10 +122,10 @@ class TestRealRun:
         assert not (preview_dir / "arise-i.log").exists()
         assert (live_dir / "arise-i.log").exists()
 
-    def test_broken_symlink_skipped_in_live_run(self, tmp_path):
+    def test_broken_symlink_skipped_in_live_run(self, tmp_path, make_broken_symlink):
         (tmp_path / "real.jpg").touch()
         broken = tmp_path / "ghost.txt"
-        broken.symlink_to("/nonexistent/path")
+        make_broken_symlink(broken, "/nonexistent/path")
 
         stats = organize_folder(str(tmp_path), dry_run=False)
         assert stats.skipped == 1

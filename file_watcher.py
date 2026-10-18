@@ -22,6 +22,7 @@ Requires:
 """
 
 import argparse
+import os
 import sys
 import threading
 import time
@@ -47,10 +48,10 @@ except ImportError:
 from file_organizer import (
     Color,
     Stats,
-    _OWN_FILES,
     boot_sequence,
     load_categories,
     organize_folder,
+    skip_reason,
 )
 
 try:
@@ -170,18 +171,18 @@ class AriseIEventHandler(FileSystemEventHandler):
 
     def _handle(self, event: FileSystemEvent) -> None:
         """Filter irrelevant events and reset the debounce timer."""
-        path = Path(getattr(event, "dest_path", event.src_path))
+        # watchdog >= 4 gives *every* event a dest_path, set to "" unless the
+        # event is a move — so fall back to src_path when it's empty.
+        raw = getattr(event, "dest_path", "") or event.src_path
+        path = Path(os.fsdecode(raw))
 
         # Ignore directories
         if event.is_directory:
             return
 
-        # Ignore ARISE-I's own metadata files
-        if path.name in _OWN_FILES:
-            return
-
-        # Ignore hidden files (e.g. .DS_Store, browser temp files)
-        if path.name.startswith("."):
+        # Ignore ARISE-I's own files, hidden/system files and in-progress
+        # downloads (.crdownload, .part, …) — same rules as the organiser
+        if skip_reason(path) is not None:
             return
 
         # Ignore files that aren't directly inside the target dir
@@ -349,7 +350,7 @@ Examples:
     args = parser.parse_args()
 
     boot_sequence(dry_run=args.dry_run)
-    categories = load_categories(args.config)
+    categories = load_categories(args.config, args.path)
     watch_folder(
         target_dir=args.path,
         debounce=args.debounce,

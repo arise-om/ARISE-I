@@ -9,10 +9,10 @@ ARISE-I installation, automatically correcting recoverable issues.
 
 Health checks performed every 60 seconds:
   1. Manifest integrity  — corrupt JSON is backed up and reset
-  2. Disk space          — warns when target drive < 500 MB free
-  3. Orphan review files — files in __Review__/ older than 7 days are re-tried
-  4. Model drift         — high correction rate triggers a retrain notification
-  5. Watch thread        — emits a heartbeat sentinel to detect a stalled thread
+  2. Disk space          — warns (once) when target drive < 500 MB free
+  3. Orphan review files — files in __Review__/ older than 7 days are flagged once
+  4. Model drift         — high correction rate triggers a retrain, but only
+                           when new feedback has arrived since the last one
 
 Events are surfaced to the GUI via a shared queue (same mechanism as the
 activity log) so the user sees live health alerts without polling.
@@ -25,7 +25,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 logger = logging.getLogger("arise_i.health")
 
@@ -67,6 +67,16 @@ class HealthMonitor:
         self._stop_event     = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._last_status: dict = {}
+        # Alert de-duplication: each condition is reported once, not every cycle
+        self._disk_warned           = False
+        self._orphans_reported: set[str] = set()
+        self._drift_retrain_at: Optional[int] = None  # event count at last retrain
+
+    def set_target_dir(self, target_dir: Optional[Path]) -> None:
+        """Point the disk/orphan checks at a newly selected folder."""
+        self._target_dir = target_dir
+        self._disk_warned = False
+        self._orphans_reported.clear()
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -163,45 +173,48 @@ class HealthMonitor:
             usage = shutil.disk_usage(path)
             free  = usage.free
             ok    = free >= DISK_WARN_BYTES
-            if not ok:
+            if not ok and not self._disk_warned:
                 gb = free / (1024 ** 3)
                 self._emit(
-                    f"⚠  Low disk space: {gb:.2f} GB free on {path} — sorting paused.",
+                    f"⚠  Low disk space: {gb:.2f} GB free on {path} — free up space "
+                    f"before organizing large files.",
                     warn=True,
                 )
-                logger.warning("Low disk space: %.2f GB free on %s", gb, path)
+            self._disk_warned = not ok
             return {"ok": ok, "free_bytes": free}
         except Exception as exc:
             logger.warning("Disk check failed: %s", exc)
             return {"ok": True, "error": str(exc)}
 
     def _check_orphans(self) -> dict:
-        """Re-classify files stuck in __Review__/ longer than ORPHAN_MAX_DAYS."""
+        """Remind the user (once per file) about files stuck in __Review__/."""
         if self._target_dir is None:
-            return {"ok": True, "retried": 0}
+            return {"ok": True, "waiting": 0}
 
         review_dir = self._target_dir / "__Review__"
         if not review_dir.exists():
-            return {"ok": True, "retried": 0}
+            return {"ok": True, "waiting": 0}
 
         cutoff = datetime.now() - timedelta(days=ORPHAN_MAX_DAYS)
-        retried = 0
+        waiting = 0
 
         for item in review_dir.iterdir():
             if item.is_file():
                 try:
                     mtime = datetime.fromtimestamp(item.stat().st_mtime)
                     if mtime < cutoff:
-                        self._emit(
-                            f"♻  Re-reviewing orphan: {item.name} (in Review for >{ORPHAN_MAX_DAYS}d)",
-                            warn=False,
-                        )
-                        retried += 1
-                        logger.info("Orphan re-review queued: %s", item)
+                        waiting += 1
+                        if item.name not in self._orphans_reported:
+                            self._orphans_reported.add(item.name)
+                            self._emit(
+                                f"♻  {item.name} has waited in Review for "
+                                f">{ORPHAN_MAX_DAYS}d — open the Review Queue to file it.",
+                                warn=False,
+                            )
                 except Exception:
                     pass
 
-        return {"ok": True, "retried": retried}
+        return {"ok": True, "waiting": waiting}
 
     def _check_drift(self) -> dict:
         """Detect model drift: high user correction rate → trigger retrain."""
@@ -211,7 +224,12 @@ class HealthMonitor:
         try:
             rate  = self._learning_store.correction_rate()
             total = self._learning_store.total_events()
-            if total >= 30 and rate >= DRIFT_WARN_RATE:
+            # Retraining only helps when new feedback has arrived since the
+            # last drift retrain; otherwise the same model would be rebuilt
+            # (and the same alert shown) every check cycle forever.
+            has_new_data = self._drift_retrain_at is None or total > self._drift_retrain_at
+            if total >= 30 and rate >= DRIFT_WARN_RATE and has_new_data:
+                self._drift_retrain_at = total
                 self._emit(
                     f"🧠  Model drift detected ({rate:.0%} correction rate) — triggering retrain…",
                     warn=True,

@@ -6,6 +6,53 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.1.0] — 2026-10-18
+
+### 🛠 Reliability release — fixes from a full audit
+
+### Fixed
+- **Auto-Sort never fired on new files** with watchdog ≥ 4: every event carries
+  `dest_path=""`, so created/modified events resolved to the CWD and were
+  dropped.  The watcher now falls back to `src_path`.
+- **Files that must not move were moved**: `desktop.ini`/`Thumbs.db`, Windows
+  hidden/system files, Office `~$` lock files, `arise-i.config.yaml`, and
+  in-progress downloads (`.crdownload`, `.part`, …) — moving the latter
+  corrupted active downloads.  Shared `skip_reason()` used by organizer and watcher.
+- **Undo could overwrite data**: a file re-downloaded to the original path was
+  clobbered.  Undo now restores as `name (1).ext`, keeps failed moves in the
+  manifest for retry, and removes category folders it left empty.
+- **Review Queue overwrote files** with the same name in the chosen category,
+  and only offered the first six categories.  Now uses unique names, classifier
+  suggestions, and a dropdown of every category.
+- **Learning loop**: files quarantined to `__Review__/` were logged as
+  `confirmed="__Review__"`, teaching the model a fake category.  These rows are
+  no longer written and are ignored at retrain; one-class models are refused.
+- **Retrained models were never used in-session** — the shared classifier now
+  reloads `model.pkl` when it changes and applies threshold changes.
+- **Health monitor** re-ran the same retrain and re-sent the same alerts every
+  60 s; drift retrain now needs new feedback, and alerts are de-duplicated.
+- **Config discovery** ignored `arise-i.config.yaml` in the target folder
+  (contrary to the README); malformed entries are now normalised.
+- **Dark mode** left dark text on dark cards; colours are now remapped per role.
+- GUI: undo asks for confirmation (Ctrl+Z was instant), Tk is no longer
+  touched from worker threads, plugins and learning now apply to GUI runs,
+  Undo/Preview are locked during Auto-Sort, Ctrl+Q saves prefs.
+- CLI refuses drive roots and the home folder (GUI already did); a file path as
+  target no longer crashes; `arise-i` now returns proper exit codes.
+- Packaging: `assignment_classifier` was missing from `py-modules`, so
+  installed builds silently lost assignment sorting.
+- CI lint never ran (ruff rejected the unknown `W503` selector and `|| true`
+  hid it).  Lint config moved to `pyproject.toml` and is now blocking.
+- Installer version was stuck at 1.3.0; the release workflow now passes the tag.
+
+### Added
+- Extensions: `.jfif .avif .ico .m4v .opus .wma .tgz .ipynb .msix .pkg .appimage .iso`
+- `arise-i --version`; `undo_last_run(..., log_callback=)` returns `(restored, failed)`
+- 43 regression tests (classifier, learning store and health monitor had none);
+  the suite runs against an isolated home so a local `model.pkl` can't skew results
+
+---
+
 ## [2.0.0] — 2026-08-08
 
 ### 🚀 Major Release — AI-Powered Classification Engine

@@ -39,7 +39,9 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup --no-progress --yes
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" ARISE-I.iss
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          if ($version -notmatch '^\d') { $version = (Select-String -Path pyproject.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value }
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" ARISE-I.iss
       - name: Create macOS zip
         if: runner.os == 'macOS'
         run: |

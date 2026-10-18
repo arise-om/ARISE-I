@@ -1,7 +1,7 @@
-"""ARISE-I v2.0.0 — GUI (AI-Powered Dashboard)"""
+"""ARISE-I v2.1.0 — GUI (AI-Powered Dashboard)"""
 
-import json
 import queue
+import shutil
 import sys
 import threading
 import time
@@ -17,9 +17,29 @@ try:
 except ImportError:
     print("[ARISE-I] tkinter not installed.\n  Ubuntu: sudo apt install python3-tk"); sys.exit(1)
 
-from file_organizer import Stats, load_categories, organize_folder, undo_last_run, _load_manifest
-from prefs import get_pref, load_prefs, save_prefs, set_pref
+from file_organizer import (
+    REVIEW_FOLDER,
+    Stats,
+    __version__,
+    _load_manifest,
+    get_unique_destination,
+    is_protected_dir,
+    load_categories,
+    organize_folder,
+    undo_last_run,
+)
+from prefs import load_prefs, save_prefs, set_pref
 import onboarding
+
+try:
+    from plugin_loader import load_plugins
+except ImportError:
+    def load_plugins(plugin_dir=None): return []  # type: ignore[misc]
+
+try:
+    from classifier import get_classifier
+except ImportError:
+    get_classifier = None  # type: ignore[assignment]
 
 try:
     from file_watcher import WATCHDOG_AVAILABLE, AriseIEventHandler
@@ -37,7 +57,7 @@ try:
 except ImportError:
     LearningStore = None  # type: ignore[assignment,misc]
 
-APP_VERSION = "2.0.0"
+APP_VERSION = __version__
 
 # ── Colour palettes ───────────────────────────────────────────────────────────
 _THEMES: dict[str, dict[str, str]] = {
@@ -48,7 +68,7 @@ _THEMES: dict[str, dict[str, str]] = {
         "ACCENT":   "#007AFF",
         "ACCENT_D": "#0056b3",
         "GREEN":    "#34C759",
-        "YELLOW":   "#FFD60A",
+        "YELLOW":   "#B8860B",  # amber: bright yellow is unreadable on white
         "RED":      "#FF3B30",
         "FG":       "#1d1d1f",
         "FG_DIM":   "#86868b",
@@ -82,6 +102,13 @@ RED        = _p["RED"]
 FG         = _p["FG"]
 FG_DIM     = _p["FG_DIM"]
 PANEL_BG   = _p["PANEL"]
+
+# Palette keys swapped on a theme change (PANEL is unused and shares a value
+# with SURFACE in the dark theme, so it would make the mapping ambiguous).
+_RECOLOR_KEYS = ("BG", "SURFACE", "BORDER", "ACCENT", "ACCENT_D",
+                 "GREEN", "YELLOW", "RED", "FG", "FG_DIM")
+_COLOR_OPTIONS = ("bg", "fg", "activebackground", "activeforeground",
+                  "highlightbackground", "highlightcolor", "insertbackground")
 
 def _font(size=10, weight="normal"):
     if sys.platform == "darwin":   return ("SF Pro Display", size, weight)
@@ -123,6 +150,15 @@ class AriseIApp(tk.Tk):
         self._health_monitor = None
         self._init_ai_subsystems()
 
+        # User classifier plugins (~/.arise-i/plugins) — same as the CLI
+        try:
+            self._plugins = load_plugins()
+        except Exception:
+            self._plugins = []
+
+        # Keep the health monitor pointed at whatever folder is selected
+        self._target_var.trace_add("write", lambda *_: self._on_target_changed())
+
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._setup_shortcuts()
@@ -141,7 +177,7 @@ class AriseIApp(tk.Tk):
                 self._learning_store = LearningStore(
                     on_retrain=self._on_model_retrained
                 )
-            except Exception as exc:
+            except Exception:
                 self._learning_store = None
         if HealthMonitor is not None:
             try:
@@ -156,7 +192,13 @@ class AriseIApp(tk.Tk):
                 self._health_monitor = None
 
     def _on_model_retrained(self) -> None:
+        # The shared classifier reloads model.pkl on its next run
         self._log_queue.put("🧠  ML model retrained — classifier updated.")
+
+    def _on_target_changed(self) -> None:
+        if self._health_monitor is not None:
+            raw = self._target_var.get().strip()
+            self._health_monitor.set_target_dir(Path(raw).expanduser() if raw else None)
 
     def _set_icon(self):
         try:
@@ -178,6 +220,7 @@ class AriseIApp(tk.Tk):
     def _apply_theme(self, name: str, init: bool = False) -> None:
         """Switch the global palette to 'dark' or 'light' and re-draw."""
         global BG, SURFACE, BORDER, ACCENT, ACCENT_DIM, GREEN, YELLOW, RED, FG, FG_DIM, PANEL_BG
+        old = _THEMES.get(getattr(self, "_theme", "light"), _THEMES["light"])
         p = _THEMES.get(name, _THEMES["light"])
         BG         = p["BG"]
         SURFACE    = p["SURFACE"]
@@ -193,31 +236,35 @@ class AriseIApp(tk.Tk):
         self._theme = name
         if not init:
             set_pref("theme", name)
-            # Re-configure root and rebuilt UI
-            self.configure(bg=BG)
-            self._refresh_theme_colors()
+            self._recolor_widgets(old, p)
 
-    def _refresh_theme_colors(self) -> None:
-        """Walk all widgets and update bg/fg to the current palette."""
-        def _recurse(widget):
-            try:
-                cls = widget.winfo_class()
-                if cls in ("Frame", "Label"):
-                    widget.configure(bg=BG)
-                elif cls == "Text":
-                    widget.configure(bg=BG, fg=FG)
-                elif cls == "Entry":
-                    widget.configure(bg=SURFACE, fg=FG, insertbackground=ACCENT)
-                elif cls == "Button":
+    def _recolor_widgets(self, old: dict[str, str], new: dict[str, str]) -> None:
+        """Swap every palette colour on every widget from *old* to *new*.
+
+        Each widget keeps its role (a card stays SURFACE, dim text stays
+        FG_DIM) because colours are mapped key-for-key, so text never ends
+        up dark-on-dark the way a blanket bg=BG repaint left it.
+        """
+        mapping = {old[k].lower(): new[k] for k in _RECOLOR_KEYS}
+
+        def _visit(widget):
+            for opt in _COLOR_OPTIONS:
+                try:
+                    current = str(widget.cget(opt)).lower()
+                except tk.TclError:
+                    continue
+                if current in mapping:
                     try:
-                        widget.configure(bg=widget.cget("bg"))
-                    except Exception:
+                        widget.configure(**{opt: mapping[current]})
+                    except tk.TclError:
                         pass
-            except Exception:
-                pass
             for child in widget.winfo_children():
-                _recurse(child)
-        _recurse(self)
+                _visit(child)
+
+        _visit(self)
+        for tag, key in (("ok", "GREEN"), ("warn", "YELLOW"), ("err", "RED"),
+                         ("dim", "FG_DIM"), ("hdr", "ACCENT")):
+            self._log_text.tag_configure(tag, foreground=new[key])
 
     def _toggle_theme(self) -> None:
         new = "dark" if self._theme == "light" else "light"
@@ -402,7 +449,7 @@ class AriseIApp(tk.Tk):
         self._switch_tab("log")
 
     def _switch_tab(self, tab_id: str):
-        for tid, frame in self._tab_frames.items():
+        for frame in self._tab_frames.values():
             frame.pack_forget()
         self._tab_frames[tab_id].pack(fill="both", expand=True)
         for tid, btn in self._tab_btns.items():
@@ -549,23 +596,54 @@ class AriseIApp(tk.Tk):
             w.destroy()
 
         target  = Path(self._target_var.get()).expanduser().resolve()
-        rev_dir = target / "__Review__"
+        rev_dir = target / REVIEW_FOLDER
+        files   = []
+        if rev_dir.is_dir():
+            files = [i for i in sorted(rev_dir.iterdir())
+                     if i.is_file() and not i.name.startswith(".")]
 
-        if not rev_dir.exists() or not any(rev_dir.iterdir()):
+        if not files:
             tk.Label(self._review_container,
                      text="✅  Nothing in Review — all files classified confidently.",
                      font=_font(11), fg=FG_DIM, bg=BG, pady=40).pack()
             return
 
         tk.Label(self._review_container,
-                 text="These files had low confidence. Confirm the correct folder:",
+                 text="These files had low confidence. Pick a suggestion or choose any folder:",
                  font=_font(10), fg=FG_DIM, bg=BG, padx=16, pady=8).pack(anchor="w")
 
-        for item in sorted(rev_dir.iterdir()):
-            if item.is_file() and not item.name.startswith("."):
-                self._build_review_card(self._review_container, item, target)
+        categories = load_categories(None, target)
+        choices    = list(categories.keys()) + ["Others"]
+        classifier = None
+        if get_classifier is not None:
+            try:
+                classifier = get_classifier(categories)
+            except Exception:
+                classifier = None
 
-    def _build_review_card(self, parent, item: Path, target: Path):
+        for item in files:
+            suggestions = self._suggest_categories(classifier, item, categories)
+            self._build_review_card(self._review_container, item, target,
+                                    choices, suggestions)
+
+    @staticmethod
+    def _suggest_categories(classifier, item: Path, categories: dict) -> list[str]:
+        """Up to three likely categories for *item*, best first."""
+        if classifier is None:
+            return []
+        try:
+            result = classifier.classify(item)
+        except Exception:
+            return []
+        ranked = [(result.category, result.confidence)] + list(result.alternatives)
+        picks: list[str] = []
+        for cat, conf in ranked:
+            if cat in categories and cat not in picks and conf >= 0.2:
+                picks.append(cat)
+        return picks[:3]
+
+    def _build_review_card(self, parent, item: Path, target: Path,
+                           choices: list[str], suggestions: list[str]):
         card = tk.Frame(parent, bg=SURFACE, padx=14, pady=10)
         card.pack(fill="x", padx=16, pady=(8, 0))
 
@@ -576,28 +654,39 @@ class AriseIApp(tk.Tk):
         tk.Label(top, text=f"{item.suffix.upper()} • {self._human_size(item)}",
                  font=_font(9), fg=FG_DIM, bg=SURFACE).pack(side="right")
 
-        # Suggest categories based on extension + common guesses
-        cats = list(load_categories(None).keys())[:6]
         btn_row = tk.Frame(card, bg=SURFACE)
         btn_row.pack(fill="x", pady=(6, 0))
-        for cat in cats:
+        # One-click buttons for the classifier's best guesses
+        for cat in suggestions:
             tk.Button(
-                btn_row, text=cat,
-                font=_font(9), fg=ACCENT, bg=BG,
+                btn_row, text=f"✓ {cat}",
+                font=_font(9, "bold"), fg=ACCENT, bg=BG,
                 relief="flat", bd=0, padx=6, pady=3,
                 cursor="hand2",
                 command=lambda i=item, c=cat, t=target: self._confirm_category(i, c, t),
             ).pack(side="left", padx=(0, 4))
 
+        # …plus every category (not just the first six) via a dropdown
+        picked = tk.StringVar(value=suggestions[0] if suggestions else choices[0])
+        ttk.Combobox(btn_row, textvariable=picked, values=choices,
+                     state="readonly", width=16).pack(side="left", padx=(8, 4))
+        tk.Button(
+            btn_row, text="Move", font=_font(9), fg="white", bg=ACCENT,
+            activebackground=ACCENT_DIM, activeforeground="white",
+            relief="flat", bd=0, padx=8, pady=3, cursor="hand2",
+            command=lambda i=item, v=picked, t=target: self._confirm_category(i, v.get(), t),
+        ).pack(side="left")
+
     def _confirm_category(self, item: Path, category: str, target: Path):
         """Move a Review file to the chosen category and record feedback."""
-        import shutil
         dest_dir  = target / category
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        dest_path = dest_dir / item.name
         try:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            # Never overwrite a same-named file already in that category
+            dest_path = get_unique_destination(dest_dir, item.name)
             shutil.move(str(item), str(dest_path))
-            self._log(f"✓  Review resolved: {item.name}  →  {category}/  [USER]", "ok")
+            note = f" (renamed: {dest_path.name})" if dest_path.name != item.name else ""
+            self._log(f"✓  Review resolved: {item.name}  →  {category}/{note}  [USER]", "ok")
             # Record correction in learning store
             if self._learning_store is not None:
                 try:
@@ -657,6 +746,17 @@ class AriseIApp(tk.Tk):
                     self._status_bar.configure(text="Ready.")
                     continue
                 if msg == "__WATCH_DONE__":
+                    continue
+                if msg == "__WATCH_FAILED__":
+                    self._auto_sort_var.set(False)
+                    self._stop_watch()
+                    continue
+                if msg == "__REFRESH_VIEWS__":
+                    # Tk widgets may only be touched from the main thread
+                    if self._active_tab.get() == "history":
+                        self._refresh_history()
+                    elif self._active_tab.get() == "review":
+                        self._refresh_review()
                     continue
                 if msg == "__HEALTH_RETRAIN__":
                     self._log("🧠  Retraining model…", "hdr")
@@ -735,9 +835,10 @@ class AriseIApp(tk.Tk):
             messagebox.showerror("Not found", f"Folder not found:\n{target}"); return
         if not tp.is_dir():
             messagebox.showerror("Not a folder", f"Not a folder:\n{target}"); return
-        if tp == Path(tp.anchor) or tp == Path.home().resolve():
+        if is_protected_dir(tp):
             messagebox.showerror("Safety",
-                "Choose a subfolder (Downloads, Desktop, etc.), not the whole drive.",
+                "Choose a subfolder (Downloads, Desktop, etc.), not a whole drive "
+                "or your home folder.",
                 parent=self); return
 
         self._set_buttons_enabled(False)
@@ -748,9 +849,10 @@ class AriseIApp(tk.Tk):
         def _worker():
             try:
                 stats = organize_folder(target, dry_run=dry_run,
-                    categories=load_categories(None),
+                    categories=load_categories(None, target),
                     log_callback=self._enqueue_log,
-                    learning_store=self._learning_store)
+                    plugins=self._plugins,
+                    learning_store=None if dry_run else self._learning_store)
                 action = "would be organized" if dry_run else "organized"
                 self._log_queue.put(f"✓  Done! {stats.total_files()} file(s) {action}")
                 if stats.skipped: self._log_queue.put(f"   {stats.skipped} skipped")
@@ -777,18 +879,25 @@ class AriseIApp(tk.Tk):
             messagebox.showerror("watchdog missing",
                 "Run: pip install watchdog"); return
         target = self._target_var.get().strip()
-        if not target or not Path(target).expanduser().exists():
-            messagebox.showerror("Not found", f"Folder not found:\n{target}"); return
+        if not target or not Path(target).expanduser().is_dir():
+            messagebox.showerror("Not found", f"Folder not found:\n{target}")
+            self._auto_sort_var.set(False); return
+        if is_protected_dir(Path(target)):
+            messagebox.showerror("Safety",
+                "Auto-sort can't watch a whole drive or your home folder.", parent=self)
+            self._auto_sort_var.set(False); return
 
         self._watching = True
         self._watch_stop.clear()
-        self._sort_btn.configure(state="disabled")
+        # Undo while watching would just get re-sorted by the watcher
+        for btn in (self._sort_btn, self._preview_btn, self._undo_btn):
+            btn.configure(state="disabled")
         self._set_status(f"Auto-sorting {Path(target).name}…")
         self._log("🔄  Auto-sort enabled", "hdr")
         self._start_pulse()
 
         debounce = max(0.1, min(300.0, self._debounce_var.get()))
-        cats     = load_categories(None)
+        cats     = load_categories(None, target)
 
         def _worker():
             from watchdog.observers import Observer as _Obs
@@ -797,23 +906,39 @@ class AriseIApp(tk.Tk):
             class _GUIHandler(_H):
                 def _run_organizer(inner):
                     self._log_queue.put("📁  New files — organizing…")
-                    s = organize_folder(str(inner.target_dir),
-                        dry_run=inner.dry_run,
-                        categories=load_categories(None),
-                        log_callback=self._enqueue_log)
-                    self._log_queue.put(f"✓  {s.total_files()} file(s) organized")
+                    try:
+                        s = organize_folder(str(inner.target_dir),
+                            dry_run=inner.dry_run,
+                            categories=load_categories(None, inner.target_dir),
+                            log_callback=self._enqueue_log,
+                            plugins=self._plugins,
+                            learning_store=self._learning_store)
+                        self._log_queue.put(f"✓  {s.total_files()} file(s) organized")
+                    except Exception as exc:
+                        self._log_queue.put(f"✗  Auto-sort run failed: {exc}")
+                    self._log_queue.put("__REFRESH_VIEWS__")
 
-            handler  = _GUIHandler(target_dir=Path(target).expanduser().resolve(),
-                                   debounce=debounce, dry_run=False, categories=cats)
-            observer = _Obs()
-            observer.schedule(handler, str(handler.target_dir), recursive=False)
-            observer.start()
-            while not self._watch_stop.is_set():
+            try:
+                handler  = _GUIHandler(target_dir=Path(target).expanduser().resolve(),
+                                       debounce=debounce, dry_run=False, categories=cats)
+                observer = _Obs()
+                observer.schedule(handler, str(handler.target_dir), recursive=False)
+                observer.start()
+            except Exception as exc:
+                self._log_queue.put(f"✗  Auto-sort could not start: {exc}")
+                self._log_queue.put("__WATCH_FAILED__")
+                return
+            while not self._watch_stop.is_set() and observer.is_alive():
                 time.sleep(0.5)
             try: handler._timer.cancel()
             except Exception: pass
+            crashed = not observer.is_alive() and not self._watch_stop.is_set()
             observer.stop()
             if observer.is_alive(): observer.join(timeout=5)
+            if crashed:
+                self._log_queue.put("✗  Auto-sort watcher stopped unexpectedly")
+                self._log_queue.put("__WATCH_FAILED__")
+                return
             self._log_queue.put("🛑  Auto-sort stopped")
             self._log_queue.put("__WATCH_DONE__")
 
@@ -823,7 +948,8 @@ class AriseIApp(tk.Tk):
     def _stop_watch(self):
         self._watch_stop.set()
         self._watching = False
-        self._sort_btn.configure(state="normal")
+        for btn in (self._sort_btn, self._preview_btn, self._undo_btn):
+            btn.configure(state="normal")
         self._set_status("Ready to organize")
         self._stop_pulse()
 
@@ -834,6 +960,15 @@ class AriseIApp(tk.Tk):
         tp = Path(target).expanduser()
         if not tp.exists():
             messagebox.showerror("Not found", f"Folder not found:\n{target}"); return
+        # Ctrl+Z is global, so it can fire while editing the path field —
+        # never move files without an explicit yes.
+        if not messagebox.askyesno(
+            "Undo last run?",
+            f"Move the files from the last ARISE-I run in:\n\n{tp}\n\n"
+            "back to where they were?",
+            parent=self,
+        ):
+            return
 
         self._set_buttons_enabled(False)
         self._set_status("Undoing last run…")
@@ -841,17 +976,11 @@ class AriseIApp(tk.Tk):
 
         def _worker():
             try:
-                import io, contextlib
-                buf = io.StringIO()
-                with contextlib.redirect_stdout(buf):
-                    undo_last_run(target)
-                for line in buf.getvalue().splitlines():
-                    if line.strip():
-                        self._log_queue.put(line.strip())
-                self._refresh_history()
+                undo_last_run(target, log_callback=self._enqueue_log)
             except Exception as e:
                 self._log_queue.put(f"✗  Error: {e}")
             finally:
+                self._log_queue.put("__REFRESH_VIEWS__")
                 self._log_queue.put("__DONE__")
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -867,7 +996,7 @@ class AriseIApp(tk.Tk):
     def _setup_shortcuts(self):
         for key in ("<Control-o>","<Command-o>"):   self.bind(key, lambda e: self._sort_now())
         for key in ("<Control-z>","<Command-z>"):   self.bind(key, lambda e: self._undo())
-        for key in ("<Control-q>","<Command-q>"):   self.bind(key, lambda e: self.quit())
+        for key in ("<Control-q>","<Command-q>"):   self.bind(key, lambda e: self._on_close())
         for key in ("<Control-b>","<Command-b>"):   self.bind(key, lambda e: self._browse())
 
     def _on_close(self):

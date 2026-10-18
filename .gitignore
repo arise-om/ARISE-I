@@ -36,3 +36,6 @@ dist/
 release/
 *.spec
 *.egg-info/
+
+# Tooling caches
+.ruff_cache/

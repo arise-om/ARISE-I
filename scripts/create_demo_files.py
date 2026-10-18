@@ -9,12 +9,11 @@ covering every extension that ARISE-I knows about, plus some edge cases
 
 Run this before recording a demo or running ARISE-I --dry-run in CI:
 
-    python create_demo_files.py              # creates ./demo_sandbox/
-    python create_demo_files.py --output /tmp/my_demo
+    python scripts/create_demo_files.py              # creates ./demo_sandbox/
+    python scripts/create_demo_files.py --output /tmp/my_demo
 """
 
 import argparse
-import os
 from pathlib import Path
 
 
@@ -105,7 +104,7 @@ def create_demo_sandbox(output_dir: str) -> Path:
     symlink_note = "1 broken symlink" if has_symlink else "0 symlinks (OS restricted)"
     print(f"[OK]  Demo sandbox ready: {out}")
     print(f"      {created} files created  |  {symlink_note}  |  1 empty subfolder")
-    print(f"\nNext step:")
+    print("\nNext step:")
     print(f"   python file_organizer.py --dry-run --path \"{out}\"")
     return out
 

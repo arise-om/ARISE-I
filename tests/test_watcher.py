@@ -191,6 +191,32 @@ class TestAriseIEventHandlerTrigger:
         time.sleep(0.3)
         mock_org.assert_called_once()
 
+    def test_real_watchdog_created_event_triggers_organizer(self, handler_and_mock):
+        """Regression: watchdog >= 4 sets dest_path="" on non-move events.
+
+        The SimpleNamespace events above lack dest_path entirely, which hid
+        a bug where every real created/modified event was silently ignored.
+        """
+        events = pytest.importorskip("watchdog.events")
+        handler, mock_org, tmp_path = handler_and_mock
+        handler.on_created(events.FileCreatedEvent(str(tmp_path / "report.pdf")))
+        time.sleep(0.3)
+        mock_org.assert_called_once()
+
+    def test_real_watchdog_modified_event_triggers_organizer(self, handler_and_mock):
+        events = pytest.importorskip("watchdog.events")
+        handler, mock_org, tmp_path = handler_and_mock
+        handler.on_modified(events.FileModifiedEvent(str(tmp_path / "song.mp3")))
+        time.sleep(0.3)
+        mock_org.assert_called_once()
+
+    def test_in_progress_download_does_not_trigger(self, handler_and_mock):
+        events = pytest.importorskip("watchdog.events")
+        handler, mock_org, tmp_path = handler_and_mock
+        handler.on_modified(events.FileModifiedEvent(str(tmp_path / "movie.mp4.crdownload")))
+        time.sleep(0.3)
+        mock_org.assert_not_called()
+
     def test_rapid_events_trigger_organizer_once(self, handler_and_mock):
         """Ten rapid events in the debounce window → exactly one sort run."""
         handler, mock_org, tmp_path = handler_and_mock

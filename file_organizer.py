@@ -41,6 +41,7 @@ if sys.version_info < (3, 10):  # pragma: no cover
 
 import yaml  # PyYAML — only external dependency
 
+__version__ = "2.1.0"
 
 # Keep ARISE-I's file logging isolated from an application's root logger.
 logger = logging.getLogger("arise_i")
@@ -162,17 +163,19 @@ def boot_sequence(dry_run: bool = False) -> None:
 # ---------------------------------------------------------------------------
 
 DEFAULT_CATEGORIES: dict[str, list[str]] = {
-    "Images":        [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp", ".tiff", ".heic"],
+    "Images":        [".jpg", ".jpeg", ".jfif", ".png", ".gif", ".bmp", ".svg", ".webp", ".tiff",
+                      ".heic", ".avif", ".ico"],
     "Documents":     [".doc", ".docx", ".txt", ".rtf", ".odt", ".md"],
     "PDFs":          [".pdf"],
     "Spreadsheets":  [".xls", ".xlsx", ".csv", ".ods"],
     "Presentations": [".ppt", ".pptx", ".odp"],
-    "Videos":        [".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm"],
-    "Music":         [".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a"],
-    "Archives":      [".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz"],
+    "Videos":        [".mp4", ".m4v", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm"],
+    "Music":         [".mp3", ".wav", ".flac", ".aac", ".ogg", ".opus", ".m4a", ".wma"],
+    "Archives":      [".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".tgz"],
     "Code":          [".py", ".js", ".ts", ".html", ".css", ".java", ".cpp", ".c", ".go", ".rs",
-                      ".sh", ".json", ".yaml", ".yml", ".toml", ".xml", ".rb", ".php"],
-    "Installers":    [".exe", ".msi", ".dmg", ".apk", ".deb", ".rpm"],
+                      ".sh", ".json", ".yaml", ".yml", ".toml", ".xml", ".rb", ".php", ".ipynb"],
+    "Installers":    [".exe", ".msi", ".msix", ".dmg", ".pkg", ".apk", ".deb", ".rpm",
+                      ".appimage", ".iso"],
     "Fonts":         [".ttf", ".otf", ".woff", ".woff2"],
     "Ebooks":        [".epub", ".mobi", ".azw3"],
 }
@@ -182,11 +185,42 @@ DEFAULT_CATEGORIES: dict[str, list[str]] = {
 # Config file loader
 # ---------------------------------------------------------------------------
 
-def load_categories(config_path: Path | None) -> dict[str, list[str]]:
+CONFIG_FILENAME = "arise-i.config.yaml"
+
+
+def _normalize_categories(data: dict) -> dict[str, list[str]] | None:
+    """Coerce a parsed YAML mapping into {category: [".ext", ...]}.
+
+    Accepts a single extension string instead of a list, and extensions
+    written without the leading dot.  Returns None if nothing usable remains.
+    """
+    categories: dict[str, list[str]] = {}
+    for name, exts in data.items():
+        if isinstance(exts, str):
+            exts = [exts]
+        if not isinstance(exts, list):
+            continue
+        cleaned = []
+        for ext in exts:
+            if not isinstance(ext, str) or not ext.strip():
+                continue
+            ext = ext.strip().lower()
+            cleaned.append(ext if ext.startswith(".") else f".{ext}")
+        if cleaned:
+            categories[str(name)] = cleaned
+    return categories or None
+
+
+def load_categories(
+    config_path: Path | None,
+    target_dir: str | Path | None = None,
+) -> dict[str, list[str]]:
     """Load category→extension mappings from a YAML config file.
 
     Falls back to DEFAULT_CATEGORIES if no config file is found or the
-    path given doesn't exist.  The config format is:
+    path given doesn't exist.  When *config_path* is None, the config is
+    auto-detected in *target_dir* first, then in the current directory.
+    The config format is:
 
         Images:
           - .jpg
@@ -198,11 +232,13 @@ def load_categories(config_path: Path | None) -> dict[str, list[str]]:
     To merge with defaults, the user should copy the defaults into their config.
     """
     if config_path is None:
-        # Auto-detect in CWD with absolute path resolution
-        auto = Path.cwd() / "arise-i.config.yaml"
-        auto = auto.resolve()  # Resolve symlinks
-        if auto.exists():
-            config_path = auto
+        search_dirs = [Path(target_dir).expanduser()] if target_dir else []
+        search_dirs.append(Path.cwd())
+        for folder in search_dirs:
+            auto = (folder / CONFIG_FILENAME).resolve()
+            if auto.is_file():
+                config_path = auto
+                break
 
     if config_path and config_path.exists():
         # Resolve to absolute path to prevent symlink issues
@@ -217,11 +253,12 @@ def load_categories(config_path: Path | None) -> dict[str, list[str]]:
             )
             return DEFAULT_CATEGORIES
 
-        if isinstance(data, dict):
+        categories = _normalize_categories(data) if isinstance(data, dict) else None
+        if categories:
             print(
                 f"{Color.CYAN}>> Config loaded from: {config_path}{Color.RESET}\n"
             )
-            return data
+            return categories
         else:
             print(
                 f"{Color.YELLOW}>> Warning: config file malformed (expected a YAML mapping); "
@@ -237,7 +274,7 @@ def load_categories(config_path: Path | None) -> dict[str, list[str]]:
 
 def _sanitize_category_name(name: str) -> str:
     """Sanitize category names to prevent path traversal and injection.
-    
+
     Removes dangerous characters and path traversal sequences like '..'
     to ensure category names are safe for path construction.
     """
@@ -269,7 +306,7 @@ def get_unique_destination(dest_folder: Path, filename: str) -> Path:
     If ``photo.jpg`` already exists in ``dest_folder``, this returns
     ``photo (1).jpg``, then ``photo (2).jpg``, and so on.  Nothing is
     ever silently clobbered.
-    
+
     Performance: Caches existing filenames in the destination folder to avoid
     repeated filesystem checks for large file sets.
     """
@@ -278,14 +315,14 @@ def get_unique_destination(dest_folder: Path, filename: str) -> Path:
         return dest_path
 
     stem, suffix = Path(filename).stem, Path(filename).suffix
-    
+
     # Cache existing filenames for performance with large file sets
     try:
         existing_files = {f.stem for f in dest_folder.glob(f"{stem}*{suffix}")}
     except OSError:
         # Fallback to individual checks if glob fails
         existing_files = set()
-    
+
     counter = 1
     MAX_ATTEMPTS = 1000
     while counter <= MAX_ATTEMPTS:
@@ -305,6 +342,9 @@ def get_unique_destination(dest_folder: Path, filename: str) -> Path:
 # ---------------------------------------------------------------------------
 
 LOG_MANIFEST = ".arise-i-log.json"
+
+# Low-confidence files are quarantined here (mirrors SmartClassifier.REVIEW_FOLDER)
+REVIEW_FOLDER = "__Review__"
 
 
 def _load_manifest(target_dir: Path) -> list[dict]:
@@ -339,17 +379,17 @@ def _save_manifest(target_dir: Path, history: list[dict]) -> None:
     """Persist the updated manifest to disk using atomic file operations."""
     manifest_path = target_dir / LOG_MANIFEST
     temp_path = manifest_path.with_suffix('.tmp')
-    
+
     try:
         # Write to temporary file first
         with open(temp_path, "w", encoding="utf-8") as fh:
             json.dump(history, fh, indent=2, default=str)
             fh.flush()  # Ensure data is written to disk
             os.fsync(fh.fileno())  # Force write to disk
-        
+
         # Atomic rename - this is atomic on POSIX systems and reasonably safe on Windows
         temp_path.replace(manifest_path)
-        
+
     except Exception as exc:
         logger.error("Failed to save manifest: %s", exc)
         # Clean up temp file if it exists
@@ -393,8 +433,53 @@ def _record_run(target_dir: Path, moves: list[dict]) -> None:
 # Plain-text audit log
 # ---------------------------------------------------------------------------
 
-# Files ARISE-I generates itself — never move these during a scan
-_OWN_FILES = {"arise-i.log", LOG_MANIFEST}
+# Files ARISE-I generates or reads itself — never move these during a scan
+_OWN_FILES = {"arise-i.log", LOG_MANIFEST, CONFIG_FILENAME}
+
+# OS metadata files that must stay put (moving desktop.ini breaks a Windows
+# folder's custom name/icon).  Compared case-insensitively.
+_SYSTEM_FILES = {"desktop.ini", "thumbs.db", "ehthumbs.db"}
+
+# In-progress downloads and temp files.  Moving these mid-write corrupts the
+# download, so they are left alone until the browser renames them.
+_PARTIAL_SUFFIXES = {
+    ".crdownload", ".part", ".partial", ".download", ".opdownload",
+    ".tmp", ".!ut", ".!qb",
+}
+
+_WIN_HIDDEN_OR_SYSTEM = 0x2 | 0x4  # FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM
+
+
+def skip_reason(path: Path) -> str | None:
+    """Return why *path* must never be moved, or None if it is sortable.
+
+    Shared by the organiser and the watcher so both apply the same rules.
+    """
+    name = path.name
+    if name in _OWN_FILES:
+        return "arise-i"
+    if name.startswith("."):
+        return "hidden"
+    if name.lower() in _SYSTEM_FILES:
+        return "system"
+    if name.startswith("~$"):
+        return "lock"  # Office owner/lock file for an open document
+    if path.suffix.lower() in _PARTIAL_SUFFIXES:
+        return "partial"
+    if os.name == "nt":
+        try:
+            attrs = path.lstat().st_file_attributes  # type: ignore[attr-defined]
+        except (OSError, AttributeError):
+            attrs = 0
+        if attrs & _WIN_HIDDEN_OR_SYSTEM:
+            return "hidden"
+    return None
+
+
+def is_protected_dir(path: Path) -> bool:
+    """True for folders ARISE-I refuses to organise: a drive root or home."""
+    resolved = path.expanduser().resolve()
+    return resolved == Path(resolved.anchor) or resolved == Path.home().resolve()
 
 
 def _setup_file_logger(target_dir: Path, dry_run: bool = False) -> logging.Logger:
@@ -428,6 +513,14 @@ def _setup_file_logger(target_dir: Path, dry_run: bool = False) -> logging.Logge
         )
         logger.addHandler(handler)
     return logger
+
+
+def _close_file_logger() -> None:
+    """Release arise-i.log so the target folder isn't held open (Windows)."""
+    for handler in logger.handlers[:]:
+        if getattr(handler, "_arise_i_file_handler", False):
+            logger.removeHandler(handler)
+            handler.close()
 
 
 # ---------------------------------------------------------------------------
@@ -560,11 +653,47 @@ def organize_folder(
 
     target_path = Path(target_dir).expanduser().resolve()
 
-    if not target_path.exists():
-        print(f"{Color.RED}✗ Folder not found: {target_path}{Color.RESET}")
+    if not target_path.is_dir():
+        reason = "Not a folder" if target_path.exists() else "Folder not found"
+        print(f"{Color.RED}✗ {reason}: {target_path}{Color.RESET}")
+        if log_callback:
+            log_callback(f"✗  {reason}: {target_path}")
+        return Stats()
+    if is_protected_dir(target_path):
+        msg = f"Refusing to organise a drive root or home folder: {target_path}"
+        print(f"{Color.RED}✗ {msg}{Color.RESET}")
+        if log_callback:
+            log_callback(f"✗  {msg}")
         return Stats()
 
-    logger = _setup_file_logger(target_path, dry_run=dry_run)
+    try:
+        # Sort entries for deterministic, reproducible output across runs
+        items = sorted(target_path.iterdir(), key=lambda p: p.name.lower())
+    except OSError as exc:
+        print(f"{Color.RED}✗ Cannot read folder {target_path}: {exc}{Color.RESET}")
+        if log_callback:
+            log_callback(f"✗  Cannot read folder: {exc}")
+        return Stats()
+
+    _setup_file_logger(target_path, dry_run=dry_run)
+    try:
+        return _organize_items(target_path, items, dry_run, categories, log_callback,
+                               plugins, confidence_threshold, learning_store)
+    finally:
+        _close_file_logger()
+
+
+def _organize_items(
+    target_path: Path,
+    items: list[Path],
+    dry_run: bool,
+    categories: dict[str, list[str]],
+    log_callback,
+    plugins,
+    confidence_threshold: float,
+    learning_store,
+) -> Stats:
+    """Classify and move each entry in *items* (the body of organize_folder)."""
     run_mode = "DRY-RUN" if dry_run else "LIVE"
     logger.info("=" * 60)
     logger.info("ARISE-I run started | mode=%s | target=%s", run_mode, target_path)
@@ -583,20 +712,14 @@ def organize_folder(
 
     print(f"{Color.CYAN}ARISE-I >> Target acquired: {target_path}{Color.RESET}\n")
 
-    # Sort entries for deterministic, reproducible output across runs
-    # Use case-insensitive sorting but cache the lowercase names for performance
-    items = sorted(target_path.iterdir(), key=lambda p: p.name.lower())
-
     for item in items:
-        # Skip ARISE-I's own metadata/log files so they never get relocated
-        if item.name in _OWN_FILES:
-            continue
-
-        # Hidden files are commonly application settings, OS metadata, or
-        # developer configuration. Moving them is surprising and can break a
-        # user's environment, so ARISE-I leaves them exactly where they are.
-        if item.name.startswith("."):
-            logger.info("Skipped hidden file: %s", item.name)
+        # Own metadata, hidden/system files, Office lock files and in-progress
+        # downloads stay exactly where they are — moving them is surprising at
+        # best and corrupts a download or breaks the folder at worst.
+        reason = skip_reason(item)
+        if reason is not None:
+            if reason != "arise-i":
+                logger.info("Skipped %s file: %s", reason, item.name)
             continue
 
         # --- Skip directories (including ones ARISE-I already created) -------
@@ -664,10 +787,9 @@ def organize_folder(
             _display_dest = f"{_subj_folder}/{_asgn_folder}/{_type_folder}"
         elif _assignment_info is not None and _assignment_info.subject is None:
             # No subject → quarantine to __Review__
-            _review = SmartClassifier.REVIEW_FOLDER if SmartClassifier else "__Review__"
-            dest_folder   = target_path / _review
-            category      = _review
-            _display_dest = _review
+            dest_folder   = target_path / REVIEW_FOLDER
+            category      = REVIEW_FOLDER
+            _display_dest = REVIEW_FOLDER
         else:
             # Standard flat folder for non-assignment files
             dest_folder   = target_path / category
@@ -705,8 +827,7 @@ def organize_folder(
                 else ""
             )
             # Colour-code uncertain (Review) moves differently
-            _is_review = (category == SmartClassifier.REVIEW_FOLDER
-                          if SmartClassifier else False)
+            _is_review = category == REVIEW_FOLDER
             _color = Color.YELLOW if _is_review else Color.GREEN
             _icon  = "⚠" if _is_review else "✓"
             print(
@@ -724,8 +845,11 @@ def organize_folder(
             moves.append({"src": str(item), "dest": str(dest_path),
                           "confidence": _confidence, "layer": _layer})
 
-            # Feed learning store (non-blocking — errors are logged, never raised)
-            if learning_store is not None:
+            # Feed learning store (non-blocking — errors are logged, never raised).
+            # Review moves are not ground truth: the label arrives later, when
+            # the user resolves the file in the Review tab.  Recording them here
+            # would teach the model to predict "__Review__" as a real category.
+            if learning_store is not None and not _is_review:
                 try:
                     learning_store.record(
                         path=item,
@@ -770,13 +894,39 @@ def organize_folder(
 # Undo: reverse the last run
 # ---------------------------------------------------------------------------
 
-def undo_last_run(target_dir: str) -> None:
+def _remove_empty_parents(folder: Path, stop_at: Path) -> None:
+    """Delete *folder* and its empty ancestors up to (not including) *stop_at*.
+
+    Only removes directories that are completely empty, so a category folder
+    the user has since put their own files into is always kept.
+    """
+    try:
+        folder.relative_to(stop_at)
+    except ValueError:
+        return  # outside the organised folder — never touch it
+    while folder != stop_at:
+        try:
+            folder.rmdir()  # fails (and stops) if the folder isn't empty
+        except OSError:
+            return
+        folder = folder.parent
+
+
+def undo_last_run(target_dir: str, log_callback=None) -> tuple[int, int]:
     """Read the most recent run from the JSON manifest and reverse every move.
 
-    Files are moved back to their original locations.  If the original
-    location no longer exists (e.g. the parent folder was deleted), the
-    error is reported and the remaining files continue to be restored.
+    Files are moved back to their original locations.  If a new file now
+    occupies the original path, the restored file gets a ``(1)`` suffix rather
+    than overwriting it.  Moves that fail stay in the manifest so a later undo
+    can retry them.  Category folders left empty by the undo are removed.
+
+    Returns ``(restored, failed)``.
     """
+    def emit(console: str, plain: str) -> None:
+        print(console)
+        if log_callback:
+            log_callback(plain)
+
     target_path = Path(target_dir).expanduser().resolve()
     history     = _load_manifest(target_path)
 
@@ -785,67 +935,87 @@ def undo_last_run(target_dir: str) -> None:
             f"{Color.YELLOW}>> No ARISE-I run history found in {target_path}.{Color.RESET}\n"
             f"{Color.DIM}   (expected: {target_path / LOG_MANIFEST}){Color.RESET}"
         )
-        return
+        if log_callback:
+            log_callback("⚠  Nothing to undo — no run history for this folder.")
+        return 0, 0
 
     last_run  = history[-1]
     timestamp = last_run.get("timestamp", "unknown time")
     moves     = last_run.get("moves", [])
 
-    print(
+    emit(
         f"{Color.CYAN}ARISE-I >> Initiating rollback of run from {timestamp}.{Color.RESET}\n"
-        f"{Color.DIM}          {len(moves)} file(s) to restore.{Color.RESET}\n"
+        f"{Color.DIM}          {len(moves)} file(s) to restore.{Color.RESET}\n",
+        f"ARISE-I >> Rolling back run from {timestamp} ({len(moves)} file(s))",
     )
 
-    logger   = _setup_file_logger(target_path)
+    _setup_file_logger(target_path)
     logger.info("UNDO started for run timestamp=%s", timestamp)
 
     restored = 0
-    failed   = 0
+    failed_moves: list[dict] = []
 
-    # Reverse the list so that any deduplication counters unwind correctly
-    for move in reversed(moves):
-        src  = Path(move["src"])   # where the file originally was
-        dest = Path(move["dest"])  # where ARISE-I moved it to
+    try:
+        # Reverse the list so that any deduplication counters unwind correctly
+        for move in reversed(moves):
+            src  = Path(move["src"])   # where the file originally was
+            dest = Path(move["dest"])  # where ARISE-I moved it to
 
-        if not dest.exists():
-            msg = f"Cannot restore — file no longer at destination: {dest}"
-            print(f"  {Color.RED}✗ {msg}{Color.RESET}")
-            logger.error(msg)
-            failed += 1
-            continue
+            if not dest.exists():
+                msg = f"Cannot restore — file no longer at destination: {dest}"
+                emit(f"  {Color.RED}✗ {msg}{Color.RESET}", f"✗  {msg}")
+                logger.error(msg)
+                failed_moves.append(move)
+                continue
 
-        try:
-            src.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(dest), str(src))
-            print(
-                f"  {Color.GREEN}✓ Restored:{Color.RESET} "
-                f"{dest.name}  →  {src.parent}/"
-            )
-            logger.info("Restored: %s -> %s", dest, src)
-            restored += 1
+            try:
+                src.parent.mkdir(parents=True, exist_ok=True)
+                # Never clobber a file that arrived at the original path since
+                restore_to = get_unique_destination(src.parent, src.name)
+                shutil.move(str(dest), str(restore_to))
+                note = f" (renamed: {restore_to.name})" if restore_to != src else ""
+                emit(
+                    f"  {Color.GREEN}✓ Restored:{Color.RESET} "
+                    f"{dest.name}  →  {src.parent}/{note}",
+                    f"✓  Restored: {dest.name}{note}",
+                )
+                logger.info("Restored: %s -> %s", dest, restore_to)
+                restored += 1
+                _remove_empty_parents(dest.parent, target_path)
 
-        except OSError as exc:
-            msg = f"Error restoring {dest.name}: {exc}"
-            print(f"  {Color.RED}✗ {msg}{Color.RESET}")
-            logger.error(msg)
-            failed += 1
+            except OSError as exc:
+                msg = f"Error restoring {dest.name}: {exc}"
+                emit(f"  {Color.RED}✗ {msg}{Color.RESET}", f"✗  {msg}")
+                logger.error(msg)
+                failed_moves.append(move)
 
-    # Remove this run entry from history now that it's been undone
-    if restored > 0:
-        history.pop()
-        try:
-            _save_manifest(target_path, history)
-        except Exception as exc:
-            logger.error("Failed to update manifest after undo: %s", exc)
-            print(f"  {Color.YELLOW}⚠ Warning: Could not update manifest after undo.{Color.RESET}")
+        # Drop the run once it's fully undone; keep failed moves for a retry
+        if restored > 0:
+            if failed_moves:
+                last_run["moves"] = list(reversed(failed_moves))
+            else:
+                history.pop()
+            try:
+                _save_manifest(target_path, history)
+            except Exception as exc:
+                logger.error("Failed to update manifest after undo: %s", exc)
+                emit(
+                    f"  {Color.YELLOW}⚠ Warning: Could not update manifest after undo.{Color.RESET}",
+                    "⚠  Could not update manifest after undo.",
+                )
 
-    print(
-        f"\n{Color.CYAN}{Color.BOLD}"
-        f"ARISE-I >> Rollback complete.  "
-        f"{restored} restored, {failed} failed."
-        f"{Color.RESET}"
-    )
-    logger.info("UNDO complete | restored=%d | failed=%d", restored, failed)
+        emit(
+            f"\n{Color.CYAN}{Color.BOLD}"
+            f"ARISE-I >> Rollback complete.  "
+            f"{restored} restored, {len(failed_moves)} failed."
+            f"{Color.RESET}",
+            f"ARISE-I >> Rollback complete: {restored} restored, {len(failed_moves)} failed.",
+        )
+        logger.info("UNDO complete | restored=%d | failed=%d", restored, len(failed_moves))
+    finally:
+        _close_file_logger()
+
+    return restored, len(failed_moves)
 
 
 
@@ -853,27 +1023,20 @@ def undo_last_run(target_dir: str) -> None:
 # Named entry point (used by pyproject.toml [project.scripts])
 # ---------------------------------------------------------------------------
 
-def _cli_main() -> None:  # pragma: no cover
-    """Entry point registered as the `arise-i` console script."""
-    # Re-use the if __name__ == "__main__" block by importing this function
-    # and calling it from the installed `arise-i` script.
-    import runpy
-    runpy.run_module("file_organizer", run_name="__main__", alter_sys=True)
-
-
-if __name__ == "__main__":
+def build_arg_parser() -> argparse.ArgumentParser:
+    """Command-line interface definition for the `arise-i` command."""
     parser = argparse.ArgumentParser(
         description="ARISE-I: Autonomous File Organization Unit.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python file_organizer.py --dry-run              # safe preview
-  python file_organizer.py --path ~/Downloads     # organise Downloads
-  python file_organizer.py --undo                 # reverse the last run
-  python file_organizer.py --config my.yaml       # custom category map
-  python file_organizer.py --watch                # daemon: watch & sort live
-  python file_organizer.py --watch --dry-run      # daemon: watch & preview
-  python file_organizer.py --watch --debounce 5   # wait 5s of quiet before sorting
+  arise-i --dry-run              # safe preview
+  arise-i --path ~/Downloads     # organise Downloads
+  arise-i --undo                 # reverse the last run
+  arise-i --config my.yaml       # custom category map
+  arise-i --watch                # daemon: watch & sort live
+  arise-i --watch --dry-run      # daemon: watch & preview
+  arise-i --watch --debounce 5   # wait 5s of quiet before sorting
         """,
     )
     parser.add_argument(
@@ -898,9 +1061,15 @@ Examples:
     )
     parser.add_argument(
         "--config", default=None, type=Path,
-        help="Path to a arise-i.config.yaml file for custom category mappings",
+        help=f"Path to an {CONFIG_FILENAME} file (default: auto-detect in --path, then CWD)",
     )
-    args = parser.parse_args()
+    parser.add_argument("--version", action="version", version=f"ARISE-I {__version__}")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the ARISE-I command line; returns a process exit code."""
+    args = build_arg_parser().parse_args(argv)
 
     boot_sequence(dry_run=args.dry_run)
 
@@ -911,6 +1080,14 @@ Examples:
             f"{Color.CYAN}>> {len(active_plugins)} classifier plugin(s) active.{Color.RESET}\n"
         )
 
+    # Live runs feed the local learning log, exactly like the GUI does
+    store = None
+    if _LEARNING_AVAILABLE and not args.dry_run and not args.undo:
+        try:
+            store = LearningStore()
+        except Exception as exc:
+            logger.warning("LearningStore unavailable: %s", exc)
+
     if args.watch:
         # Import lazily so watchdog is only required when --watch is used
         from file_watcher import WATCHDOG_AVAILABLE as _WD_OK, watch_folder
@@ -919,34 +1096,47 @@ Examples:
                 f"{Color.RED}✗ watchdog is required for --watch mode.\n"
                 f"  Run:  pip install watchdog{Color.RESET}"
             )
-            sys.exit(1)
-        categories = load_categories(args.config)
+            return 1
         watch_folder(
             target_dir=args.path,
             debounce=args.debounce,
             dry_run=args.dry_run,
-            categories=categories,
+            categories=load_categories(args.config, args.path),
             plugins=active_plugins,
+            learning_store=store,
         )
-    elif args.undo:
-        undo_last_run(args.path)
-    else:
-        categories = load_categories(args.config)
-        stats      = organize_folder(
-            args.path,
-            dry_run=args.dry_run,
-            categories=categories,
-            plugins=active_plugins,
-        )
-        stats.print_summary()
+        return 0
 
-        if args.dry_run:
-            print(
-                f"\n{Color.YELLOW}>> Simulation complete — "
-                f"zero filesystem changes made.{Color.RESET}"
-            )
-        else:
-            print(
-                f"\n{Color.GREEN}>> Run logged.  "
-                f"Use --undo to reverse this operation.{Color.RESET}"
-            )
+    if args.undo:
+        _, failed = undo_last_run(args.path)
+        return 1 if failed else 0
+
+    stats = organize_folder(
+        args.path,
+        dry_run=args.dry_run,
+        categories=load_categories(args.config, args.path),
+        plugins=active_plugins,
+        learning_store=store,
+    )
+    stats.print_summary()
+
+    if args.dry_run:
+        print(
+            f"\n{Color.YELLOW}>> Simulation complete — "
+            f"zero filesystem changes made.{Color.RESET}"
+        )
+    else:
+        print(
+            f"\n{Color.GREEN}>> Run logged.  "
+            f"Use --undo to reverse this operation.{Color.RESET}"
+        )
+    return 1 if stats.errors else 0
+
+
+def _cli_main() -> None:  # pragma: no cover
+    """Entry point registered as the `arise-i` console script."""
+    sys.exit(main())
+
+
+if __name__ == "__main__":  # pragma: no cover
+    _cli_main()

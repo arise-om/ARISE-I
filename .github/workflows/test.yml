@@ -69,6 +69,8 @@ jobs:
           python-version: "3.12"
       - name: Install ruff
         run: pip install ruff
-      # Non-blocking: lint failures are warnings, not CI failures
+      # Rules live in pyproject.toml [tool.ruff].  The old inline flags named
+      # W503 (a pycodestyle rule ruff doesn't have), so ruff exited with a
+      # config error on every run and `|| true` hid it — lint never ran.
       - name: Run ruff
-        run: ruff check . --select=E,F,W --ignore=E501,W503 || true
+        run: ruff check .

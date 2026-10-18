@@ -107,3 +107,52 @@ class TestUndo:
         assert (tmp_path / "photo.jpg").read_text() == "new copy"
         # The old copy in Images/ should remain untouched
         assert (img_dir / "photo.jpg").read_text() == "old copy"
+
+
+class TestUndoSafety:
+    """Undo must never destroy data, even when the folder changed since."""
+
+    def test_newer_file_at_original_path_is_not_overwritten(self, tmp_path):
+        (tmp_path / "report.pdf").write_text("OLD")
+        organize_folder(str(tmp_path), dry_run=False)
+        # The same file name is downloaded again before the user undoes
+        (tmp_path / "report.pdf").write_text("NEW")
+
+        restored, failed = undo_last_run(str(tmp_path))
+
+        assert (restored, failed) == (1, 0)
+        assert (tmp_path / "report.pdf").read_text() == "NEW"
+        assert (tmp_path / "report (1).pdf").read_text() == "OLD"
+
+    def test_failed_moves_stay_in_manifest_for_retry(self, tmp_path):
+        _make_files(tmp_path, ["a.jpg", "b.pdf"])
+        organize_folder(str(tmp_path), dry_run=False)
+        (tmp_path / "PDFs" / "b.pdf").unlink()  # user deleted one sorted file
+
+        restored, failed = undo_last_run(str(tmp_path))
+
+        assert (restored, failed) == (1, 1)
+        manifest = json.loads((tmp_path / LOG_MANIFEST).read_text())
+        assert len(manifest) == 1
+        assert [Path(m["src"]).name for m in manifest[0]["moves"]] == ["b.pdf"]
+
+    def test_empty_category_folders_are_removed(self, tmp_path):
+        _make_files(tmp_path, ["a.jpg"])
+        organize_folder(str(tmp_path), dry_run=False)
+        undo_last_run(str(tmp_path))
+        assert not (tmp_path / "Images").exists()
+
+    def test_category_folder_with_user_files_is_kept(self, tmp_path):
+        _make_files(tmp_path, ["a.jpg"])
+        organize_folder(str(tmp_path), dry_run=False)
+        (tmp_path / "Images" / "mine.jpg").write_text("user file")
+        undo_last_run(str(tmp_path))
+        assert (tmp_path / "Images" / "mine.jpg").exists()
+
+    def test_log_callback_receives_progress(self, tmp_path):
+        _make_files(tmp_path, ["a.jpg"])
+        organize_folder(str(tmp_path), dry_run=False)
+        messages: list[str] = []
+        undo_last_run(str(tmp_path), log_callback=messages.append)
+        assert any(m.startswith("✓  Restored: a.jpg") for m in messages)
+        assert any("Rollback complete" in m for m in messages)

@@ -2,7 +2,7 @@
 
 > **Maintained by:** Om Deshmukh · Ironlabs.tech  
 > **Last updated:** 2026-08-08  
-> **Current version:** 2.0.0  
+> **Current version:** 2.1.0 (see [UPGRADE_PLAN.md](UPGRADE_PLAN.md) for the v2.1 audit and the v3 plan)  
 > **Status:** Active development → Premium product track
 
 ---
@@ -425,9 +425,9 @@ Start with **Option A (Open Core)**:
 
 | Issue | Impact | Fix Plan |
 |---|---|---|
-| `_refresh_theme_colors()` only updates bg on most widgets — colors not fully theme-aware after toggle | Visual inconsistency on theme switch | Sprint 3: rebuild UI with a proper style registry (dict of widget refs → re-apply on toggle) |
+| ~~`_refresh_theme_colors()` only updates bg on most widgets~~ | ✅ Fixed in v2.1.0 — `_recolor_widgets()` remaps every palette colour by role | — |
 | `learning_store.retrain()` runs on the health monitor thread — blocks other checks for up to 5s | Health checks delayed during retrain | Sprint 3: run retrain in its own `concurrent.futures.ThreadPoolExecutor` |
-| No test for `classifier.py`, `learning_store.py`, `health_monitor.py` | Regression risk | Sprint 3: write unit tests for all v2.0 modules |
+| ~~No test for `classifier.py`, `learning_store.py`, `health_monitor.py`~~ | ✅ v2.1.0 — `tests/test_ai_layer.py` | Extend coverage as features land |
 | `__Review__/` files not re-classified automatically when model improves | Files may sit in Review forever | Sprint 4: add scheduler that re-attempts Review folder after every model retrain |
 
 ### Medium Priority
@@ -435,7 +435,7 @@ Start with **Option A (Open Core)**:
 | Issue | Fix Plan |
 |---|---|
 | GUI sort worker passes `learning_store=None` on dry runs — correct, but should log that feedback is disabled | Add debug log line |
-| `_build_review_card()` shows top-6 categories alphabetically, not ranked by classifier confidence | Use `SmartClassifier.classify().alternatives` to rank suggestions |
+| ~~`_build_review_card()` shows top-6 categories only~~ | ✅ v2.1.0 — ranked suggestions + dropdown of all categories |
 | Manifest `moves` entries now include `confidence` and `layer` but undo logic ignores them | Future: "undo only moves below X% confidence" |
 | `install.sh` doesn't update an existing installation correctly (re-creates venv from scratch) | Sprint 3: add `--upgrade` flag to installer |
 

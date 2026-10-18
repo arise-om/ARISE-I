@@ -14,19 +14,12 @@ These tests do NOT open a real window — they test:
 All tests run fine in CI without a display server.
 """
 
-import io
-import contextlib
-import importlib
 import sys
-import tempfile
-import unittest
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from file_organizer import organize_folder, undo_last_run, LOG_MANIFEST
-import json
+from file_organizer import organize_folder
 import logging
 
 
@@ -100,10 +93,10 @@ class TestLogCallback:
         organize_folder(str(tmp_path), dry_run=False, log_callback=messages.append)
         assert messages == []
 
-    def test_callback_receives_skip_message_for_broken_symlink(self, tmp_path):
+    def test_callback_receives_skip_message_for_broken_symlink(self, tmp_path, make_broken_symlink):
         """Broken symlinks produce a callback message containing ⚠."""
         broken = tmp_path / "ghost.txt"
-        broken.symlink_to("/nonexistent/path/file.txt")
+        make_broken_symlink(broken, "/nonexistent/path/file.txt")
 
         messages = []
         organize_folder(str(tmp_path), dry_run=False, log_callback=messages.append)

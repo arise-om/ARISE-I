@@ -6,7 +6,17 @@ ARISE-I watches your Downloads folder (or any folder) and automatically sorts fi
 
 ---
 
-## 🆕 What's New in v2.0.0
+## 🆕 What's New in v2.1.0 (reliability release)
+
+- **Auto-Sort works again with watchdog 4+** — new and modified files were silently ignored
+- **Never moves files it shouldn't** — `desktop.ini`, `Thumbs.db`, Windows hidden/system files, Office `~$` lock files, `arise-i.config.yaml`, and in-progress downloads (`.crdownload`, `.part`, …)
+- **Safer Undo** — never overwrites a newer file, keeps failed moves for a retry, removes empty category folders, and asks before running
+- **Smarter learning** — Review-quarantined files are no longer logged as a fake `__Review__` category; retrained models load immediately
+- **Review Queue** — classifier suggestions plus every category (was limited to the first six); no overwrites
+- **Dark mode text is readable**; health alerts no longer repeat every minute
+- Config is now auto-detected **in the target folder** (as documented), then the current directory
+
+## v2.0.0
 
 - **AI Classification Engine** — Multi-layer classifier: extension → MIME → heuristics → local ML model
 - **Confidence Scoring** — Every file gets a confidence badge (`[HIGH 92%]` / `[MED 71%]` / `[LOW 34%]`)
@@ -38,7 +48,7 @@ ARISE-I watches your Downloads folder (or any folder) and automatically sorts fi
 ### Install from source (Linux / macOS)
 
 ```bash
-git clone https://github.com/om-ironlabs/ARISE-I.git
+git clone https://github.com/arise-om/ARISE-I.git
 cd ARISE-I
 bash install.sh
 arise-i-gui
@@ -106,6 +116,8 @@ File dropped
 | Others | Everything else |
 | **`__Review__/`** | Low-confidence files awaiting your decision |
 
+**Never moved:** hidden files (`.name` or the Windows hidden/system attribute), `desktop.ini` / `Thumbs.db`, Office `~$` lock files, in-progress downloads (`.crdownload`, `.part`, `.partial`, `.download`, `.tmp`, …), and ARISE-I's own `arise-i.log`, `.arise-i-log.json` and `arise-i.config.yaml`. ARISE-I also refuses to organize a drive root or your home folder.
+
 ---
 
 ## ⚙️ CLI Usage
@@ -131,7 +143,7 @@ arise-i --undo
 
 ## 🔌 Custom Categories
 
-Create `arise-i.config.yaml` in the target folder:
+Create `arise-i.config.yaml` in the target folder (ARISE-I also checks the folder you run it from, or pass `--config path.yaml`). Extensions may omit the dot; a category may be a single string:
 
 ```yaml
 Work:
@@ -157,7 +169,8 @@ Drop `.py` files into `~/.arise-i/plugins/` for custom classification logic:
 
 ```python
 # ~/.arise-i/plugins/01_by_year.py
-from pathlib import Path, datetime
+from datetime import datetime
+from pathlib import Path
 
 def classify(path: Path) -> str | None:
     if path.suffix.lower() not in {".jpg", ".jpeg", ".png"}:
@@ -186,9 +199,9 @@ def classify(path: Path) -> str | None:
 ## 🧪 Testing
 
 ```bash
-pip install pytest
-pytest tests/ -v
-# 120 tests, all passing
+pip install -e ".[dev,ai]"
+pytest tests/ -v      # 205 tests (symlink tests skip on Windows without Developer Mode)
+ruff check .          # lint rules live in pyproject.toml
 ```
 
 ---

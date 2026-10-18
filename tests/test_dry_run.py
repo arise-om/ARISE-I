@@ -68,11 +68,11 @@ class TestDryRun:
         organize_folder(str(tmp_path), dry_run=True)
         assert not (tmp_path / "arise-i.log").exists()
 
-    def test_broken_symlink_skipped(self, tmp_path):
+    def test_broken_symlink_skipped(self, tmp_path, make_broken_symlink):
         """Broken symlinks are reported but cause no crash and no file moves."""
         _populate(tmp_path)
         broken = tmp_path / "ghost.txt"
-        broken.symlink_to("/nonexistent/path")
+        make_broken_symlink(broken, "/nonexistent/path")
 
         stats = organize_folder(str(tmp_path), dry_run=True)
         assert stats.skipped == 1

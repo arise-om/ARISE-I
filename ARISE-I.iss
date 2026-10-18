@@ -2,7 +2,10 @@
 ; The release workflow compiles this after PyInstaller creates dist/ARISE-I/.
 
 #define AppName "ARISE-I"
-#define AppVersion "1.3.0"
+; The release workflow passes /DAppVersion=<tag>; this is the local fallback.
+#ifndef AppVersion
+  #define AppVersion "2.1.0"
+#endif
 #define AppPublisher "Ironlabs"
 #define AppURL "https://github.com/arise-om/ARISE-I"
 #define AppExeName "ARISE-I.exe"

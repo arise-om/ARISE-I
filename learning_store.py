@@ -18,6 +18,7 @@ All processing is 100 % local — no data ever leaves the machine.
 
 import json
 import logging
+import threading
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -46,6 +47,14 @@ MIN_SAMPLES       = 20    # minimum events before enabling the ML layer
 RETRAIN_THRESHOLD = 50    # new events per session before triggering retrain
 MIN_CLASS_SAMPLES = 2     # minimum samples per class for NB to be valid
 
+# Labels that are never ground truth.  Versions before 2.1 logged files sent
+# to the Review quarantine as confirmed "__Review__" — those rows are ignored.
+_NON_LABELS = {"__Review__"}
+
+# Serialises feedback appends and model writes across the GUI worker, the
+# watcher and the health monitor's retrain thread.
+_LOCK = threading.RLock()
+
 
 class LearningStore:
     """Manages the user-feedback log and model retraining lifecycle.
@@ -72,10 +81,13 @@ class LearningStore:
     ) -> None:
         self._feedback_file   = feedback_file
         self._model_file      = model_file
+        self._meta_file       = (MODEL_META_FILE if model_file == MODEL_FILE
+                                 else model_file.with_name(model_file.stem + "_meta.json"))
         self._retrain_threshold = retrain_threshold
         self._on_retrain      = on_retrain
         self._session_events  = 0
-        _ARISE_DIR.mkdir(parents=True, exist_ok=True)
+        self._feedback_file.parent.mkdir(parents=True, exist_ok=True)
+        self._model_file.parent.mkdir(parents=True, exist_ok=True)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -111,8 +123,11 @@ class LearningStore:
             "corrected":  predicted != confirmed,
         }
 
+        if confirmed in _NON_LABELS:
+            return  # the real label arrives when the user resolves the file
+
         try:
-            with open(self._feedback_file, "a", encoding="utf-8") as fh:
+            with _LOCK, open(self._feedback_file, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(event) + "\n")
         except Exception as exc:
             logger.warning("Could not write feedback event: %s", exc)
@@ -120,10 +135,10 @@ class LearningStore:
 
         self._session_events += 1
 
-        # Auto-retrain when threshold is hit
-        if _SKLEARN_AVAILABLE:
-            total = self.total_events()
-            if total >= MIN_SAMPLES and self._session_events >= self._retrain_threshold:
+        # Auto-retrain when threshold is hit.  The session counter is checked
+        # first so the whole log isn't re-read after every single file.
+        if _SKLEARN_AVAILABLE and self._session_events >= self._retrain_threshold:
+            if self.total_events() >= MIN_SAMPLES:
                 logger.info("Auto-retrain triggered (%d session events)", self._session_events)
                 self.retrain()
                 self._session_events = 0
@@ -141,25 +156,31 @@ class LearningStore:
             logger.info("scikit-learn not available — skipping retrain.")
             return False
 
-        events = self._load_all_events()
+        with _LOCK:
+            return self._retrain_locked(force)
+
+    def _retrain_locked(self, force: bool) -> bool:
+        events = [
+            e for e in self._load_all_events()
+            if isinstance(e.get("features"), str) and e.get("confirmed")
+            and e["confirmed"] not in _NON_LABELS
+        ]
         if not force and len(events) < MIN_SAMPLES:
             logger.info("Too few samples (%d) — skipping retrain.", len(events))
             return False
 
-        # Use confirmed labels as ground-truth
-        texts  = [e["features"] for e in events]
-        labels = [e["confirmed"] for e in events]
-
-        # Filter classes with too few samples for NB
-        counts = Counter(labels)
+        # Use confirmed labels as ground-truth; filter classes with too few
+        # samples for Naive Bayes to be meaningful
+        counts = Counter(e["confirmed"] for e in events)
         valid  = {cls for cls, n in counts.items() if n >= MIN_CLASS_SAMPLES}
-        pairs  = [(t, l) for t, l in zip(texts, labels) if l in valid]
+        pairs  = [(e["features"], e["confirmed"]) for e in events if e["confirmed"] in valid]
 
-        if not pairs:
-            logger.info("No valid class pairs found — skipping retrain.")
+        if len(valid) < 2:
+            logger.info("Need at least 2 categories to train — skipping retrain.")
             return False
 
-        texts_f, labels_f = zip(*pairs)
+        texts_f   = [text for text, _ in pairs]
+        labels_f  = [label for _, label in pairs]
 
         try:
             pipeline = Pipeline([
@@ -200,7 +221,7 @@ class LearningStore:
 
             # Write human-readable meta
             meta = {k: v for k, v in model_data.items() if k != "pipeline"}
-            with open(MODEL_META_FILE, "w", encoding="utf-8") as fh:
+            with open(self._meta_file, "w", encoding="utf-8") as fh:
                 json.dump(meta, fh, indent=2)
 
             logger.info(
@@ -239,10 +260,10 @@ class LearningStore:
 
     def model_meta(self) -> dict:
         """Return the model_meta.json dict, or empty dict if not trained yet."""
-        if not MODEL_META_FILE.exists():
+        if not self._meta_file.exists():
             return {}
         try:
-            with open(MODEL_META_FILE, "r", encoding="utf-8") as fh:
+            with open(self._meta_file, "r", encoding="utf-8") as fh:
                 return json.load(fh)
         except Exception:
             return {}
