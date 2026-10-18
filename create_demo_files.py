@@ -57,6 +57,14 @@ DEMO_FILES: list[tuple[str, str]] = [
     ("OpenSans.ttf",                ""),
     # Ebooks
     ("hitchhikers_guide.epub",      ""),
+    # --- Assignments ---
+    ("Assignment 1 - Calculus.pdf",      ""),                     # type-first pattern
+    ("Assignment 2 - Calculus.docx",     ""),                     # same subject, different type
+    ("Lab 3 - Biology.pdf",             ""),                      # lab pattern
+    ("Lab Report 1 - Chemistry.pdf",     ""),                     # lab report pattern
+    ("Project 2 - Physics.zip",          ""),                     # project pattern
+    ("Math - Assignment 4.pdf",          ""),                     # subject-first pattern
+    ("Assignment 1.pdf",                 ""),                     # no subject → __Review__
     # --- Edge cases ---
     ("PHOTO_UPPERCASE.JPG",         ""),                     # uppercase extension
     ("résumé_français.pdf",         ""),                     # non-ASCII filename
@@ -81,16 +89,22 @@ def create_demo_sandbox(output_dir: str) -> Path:
             dest.write_text(content, encoding="utf-8")
             created += 1
 
-    # Create a broken symlink to verify ARISE-I skips it gracefully
+    # Create a broken symlink to verify ARISE-I skips it gracefully (if OS permits)
     broken = out / "broken_link.txt"
+    has_symlink = False
     if not broken.exists() and not broken.is_symlink():
-        broken.symlink_to("/nonexistent/target/path")
+        try:
+            broken.symlink_to("/nonexistent/target/path")
+            has_symlink = True
+        except OSError:
+            pass  # Windows without SeCreateSymbolicLinkPrivilege
 
     # Create an empty subfolder (ARISE-I should skip it)
     (out / "empty_subfolder").mkdir(exist_ok=True)
 
-    print(f"✓  Demo sandbox ready: {out}")
-    print(f"   {created} files created  |  1 broken symlink  |  1 empty subfolder")
+    symlink_note = "1 broken symlink" if has_symlink else "0 symlinks (OS restricted)"
+    print(f"[OK]  Demo sandbox ready: {out}")
+    print(f"      {created} files created  |  {symlink_note}  |  1 empty subfolder")
     print(f"\nNext step:")
     print(f"   python file_organizer.py --dry-run --path \"{out}\"")
     return out

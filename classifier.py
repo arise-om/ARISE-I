@@ -95,6 +95,15 @@ _MIME_PREFIX: list[tuple[str, str, float]] = [
     ("text/plain",       "Documents",     0.55),  # intentionally low — ambiguous
 ]
 
+# ── Assignment detection (optional) ──────────────────────────────────────────
+try:
+    from assignment_classifier import AssignmentInfo, parse_assignment
+    _ASSIGNMENT_AVAILABLE = True
+except ImportError:
+    _ASSIGNMENT_AVAILABLE = False
+    AssignmentInfo = None        # type: ignore[assignment,misc]
+    parse_assignment = None      # type: ignore[assignment,misc]
+
 # ── Filename heuristics ──────────────────────────────────────────────────────
 
 _HEURISTICS: list[tuple[re.Pattern, str, float]] = [
@@ -103,7 +112,7 @@ _HEURISTICS: list[tuple[re.Pattern, str, float]] = [
     (re.compile(r'wallpaper|background|avatar',          re.I), "Images",     0.78),
     (re.compile(r'invoice|receipt|statement|billing',    re.I), "Documents",  0.84),
     (re.compile(r'resume|curriculum.?vitae|\bcv\b',      re.I), "Documents",  0.88),
-    (re.compile(r'lecture|notes?|assignment|homework',   re.I), "Documents",  0.76),
+    (re.compile(r'lecture|notes?',                        re.I), "Documents",  0.76),
     (re.compile(r'setup[-_ v]\d|installer[-_ ]',         re.I), "Installers", 0.80),
     (re.compile(r'\bebook\b|e-book',                     re.I), "Ebooks",     0.82),
     (re.compile(r'soundtrack|ost\b|playlist|album',      re.I), "Music",      0.78),
@@ -122,6 +131,7 @@ class ClassificationResult:
     confidence:   float                              # 0.0 – 1.0
     layer:        str                                # which layer decided
     alternatives: list[tuple[str, float]] = field(default_factory=list)
+    assignment_info: "AssignmentInfo | None" = field(default=None)
 
     @property
     def badge(self) -> str:
@@ -212,15 +222,39 @@ class SmartClassifier:
 
     def classify(self, path: Path) -> ClassificationResult:
         """Classify *path* through all layers; return the highest-confidence result."""
+        # ── Assignment detection (runs alongside other layers) ───────────
+        _assignment_info: "AssignmentInfo | None" = None
+        if _ASSIGNMENT_AVAILABLE and parse_assignment is not None:
+            _assignment_info = parse_assignment(path)
+
         results = [
             self._by_extension(path),
             self._by_mime(path),
             self._by_heuristics(path),
         ]
+
+        # If an assignment pattern matched, inject a high-confidence result
+        # whose *category* is the file-type folder (from extension) so the
+        # organiser can build:  Subject / Assignment N / <file-type> /
+        if _assignment_info is not None:
+            ext_result = self._by_extension(path)
+            file_type_cat = ext_result.category if ext_result.confidence > 0.5 else "Others"
+            results.append(ClassificationResult(
+                category=file_type_cat,
+                confidence=_assignment_info.confidence,
+                layer="assignment",
+                assignment_info=_assignment_info,
+            ))
+
         if self._ml_pipeline is not None:
             results.append(self._by_model(path))
 
         winner = max(results, key=lambda r: r.confidence)
+
+        # Propagate assignment_info to the winner even if the assignment
+        # layer didn't have the highest confidence (belt-and-suspenders).
+        if _assignment_info is not None and winner.assignment_info is None:
+            winner.assignment_info = _assignment_info
 
         # Build alternatives list (distinct categories, sorted by confidence)
         seen: set[str] = {winner.category}
@@ -238,6 +272,7 @@ class SmartClassifier:
                 confidence=winner.confidence,
                 layer="review_fallback",
                 alternatives=[(winner.category, winner.confidence)] + alts[:2],
+                assignment_info=_assignment_info,
             )
 
         return winner

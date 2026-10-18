@@ -102,8 +102,18 @@ class Color:
         return re.sub(r"\033\[[0-9;]*m", "", text)
 
 
-# Enable ANSI on Windows cmd.exe if needed
+# Enable ANSI on Windows cmd.exe if needed, and ensure UTF-8 encoding for console output
 if os.name == "nt":
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    if hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     try:
         import ctypes
         kernel32 = ctypes.windll.kernel32
@@ -613,6 +623,7 @@ def organize_folder(
         _confidence = 1.0
         _badge      = "PLUGIN"
         _layer      = "plugin"
+        _result     = None
         if plugin_category:
             raw_category = plugin_category
         elif _smart is not None:
@@ -630,14 +641,39 @@ def organize_folder(
 
         category = _sanitize_category_name(raw_category)
 
+        # ── Assignment-specific nested folder structure ───────────────────
+        # When the classifier detects an assignment pattern with a subject,
+        # build:  <target> / Subject / Assignment N / FileType /
+        # When the subject is missing, quarantine to __Review__/.
+        _assignment_info = None
+        if _result is not None and hasattr(_result, 'assignment_info'):
+            _assignment_info = _result.assignment_info
+
         # Try to get file size (safe — file may be 0 bytes or unreadable)
         try:
             size_bytes = item.stat().st_size
         except OSError:
             size_bytes = 0
 
-        dest_folder = target_path / category
-        dest_path   = get_unique_destination(dest_folder, item.name)
+        if _assignment_info is not None and _assignment_info.subject:
+            # Nested:  Subject / Assignment N / FileType
+            _subj_folder = _sanitize_category_name(_assignment_info.subject)
+            _asgn_folder = _sanitize_category_name(_assignment_info.folder_name)
+            _type_folder = _sanitize_category_name(category)
+            dest_folder  = target_path / _subj_folder / _asgn_folder / _type_folder
+            _display_dest = f"{_subj_folder}/{_asgn_folder}/{_type_folder}"
+        elif _assignment_info is not None and _assignment_info.subject is None:
+            # No subject → quarantine to __Review__
+            _review = SmartClassifier.REVIEW_FOLDER if SmartClassifier else "__Review__"
+            dest_folder   = target_path / _review
+            category      = _review
+            _display_dest = _review
+        else:
+            # Standard flat folder for non-assignment files
+            dest_folder   = target_path / category
+            _display_dest = category
+
+        dest_path = get_unique_destination(dest_folder, item.name)
 
         if dry_run:
             dedup_note = (
@@ -648,13 +684,13 @@ def organize_folder(
             print(
                 f"  {Color.YELLOW}[SIMULATION]{Color.RESET} "
                 f"{item.name}  {Color.DIM}→{Color.RESET}  "
-                f"{Color.CYAN}{category}/{Color.RESET}{dedup_note}"
+                f"{Color.CYAN}{_display_dest}/{Color.RESET}{dedup_note}"
                 f"  {Color.DIM}[{_badge} {_confidence:.0%}]{Color.RESET}"
             )
             logger.info("[DRY-RUN] Would move: %s -> %s/ (conf=%.2f layer=%s)",
-                        item.name, category, _confidence, _layer)
+                        item.name, _display_dest, _confidence, _layer)
             if log_callback:
-                log_callback(f"[SIM]  {item.name}  →  {category}/{dedup_note}  [{_badge} {_confidence:.0%}]")
+                log_callback(f"[SIM]  {item.name}  →  {_display_dest}/{dedup_note}  [{_badge} {_confidence:.0%}]")
             stats.record(category, size_bytes)
             continue
 
@@ -675,13 +711,13 @@ def organize_folder(
             _icon  = "⚠" if _is_review else "✓"
             print(
                 f"  {_color}{_icon} Relocated:{Color.RESET} "
-                f"{item.name}  →  {Color.CYAN}{category}/{Color.RESET}"
+                f"{item.name}  →  {Color.CYAN}{_display_dest}/{Color.RESET}"
                 f"  {Color.DIM}[{_badge} {_confidence:.0%}]{dedup_note}{Color.RESET}"
             )
             logger.info("Moved: %s -> %s (conf=%.2f layer=%s)",
                         item, dest_path, _confidence, _layer)
             if log_callback:
-                log_callback(f"{_icon}  {item.name}  →  {category}/{dedup_note}  [{_badge} {_confidence:.0%}]")
+                log_callback(f"{_icon}  {item.name}  →  {_display_dest}/{dedup_note}  [{_badge} {_confidence:.0%}]")
             stats.record(category, size_bytes)
 
             # Record the move for undo support
