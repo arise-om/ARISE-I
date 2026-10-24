@@ -63,7 +63,7 @@ addopts   = "-v"
 # disables assignment sorting in installed builds instead of failing loudly.
 py-modules = [
     "file_organizer", "file_watcher", "gui", "plugin_loader",
-    "prefs", "onboarding",
+    "prefs", "onboarding", "ui_theme",
     "classifier", "assignment_classifier", "learning_store", "health_monitor",
 ]
 
