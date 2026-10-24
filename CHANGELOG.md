@@ -6,6 +6,52 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### 🎨 UI / UX refresh
+
+### Changed
+- **New layout**: a sidebar menu (Activity, History, Last Run, Review Queue)
+  replaces the top tab bar, with a sliding active-page indicator and a badge
+  counting files waiting in Review.  Each page has a title, a one-line
+  description and its own header actions (Clear log, Refresh, …).
+- **Folder field** now spans the full width and keeps the folder name in view;
+  a live hint below it shows how many loose files are ready to sort, or warns
+  when the folder is missing or protected.  Preview / Organize Now / Undo sit
+  right beneath it.
+- **Last Run** shows count-up summary tiles (files, categories, skipped,
+  errors) and a full-width per-category bar chart; after a Preview it offers
+  "Organize these files" directly.
+- **History** cards show relative time ("5 min ago"), category chips and which
+  run is undoable.  **Review Queue** cards show type, size and one-click
+  suggestion chips beside the full category dropdown.
+- **Auto-Sort** uses an animated on/off switch and a "breathing" status dot
+  instead of a checkbox and blinking text.
+- **First-run wizard** follows the saved theme, validates the folder, fits its
+  content (the "Let's Go" button was cut off) and supports Enter / Esc.
+- Restyled cards, borders, scrollbars and dropdowns; higher-contrast text
+  colours in light mode.
+
+### Added
+- **Menu bar** — File (Choose / Open Folder, Preview, Organize, Undo, Quit),
+  View (pages, Dark Mode, Animations) and Help (Keyboard Shortcuts, About).
+- **Shortcuts**: Ctrl+P preview, Ctrl+E open folder, Ctrl+D dark mode,
+  Ctrl+1…4 switch page, F1 shortcut list.
+- **Animations**: window fade in/out, page slide-in, theme-switch dim, hover
+  colour fades, indeterminate progress strip during runs, and corner toast
+  notifications for finished runs, undo and Review moves.  View → Animations
+  turns them off (reduced motion), saved as the `animations` pref.
+- Tooltips on toolbar buttons, mouse-wheel scrolling in History and Review,
+  and the window size/position is remembered (`window_geometry` pref).
+- `ui_theme.py` — shared palettes, fonts, colour maths, animation engine and
+  the toggle switch, used by both `gui.py` and `onboarding.py`.
+
+### Fixed
+- Keyboard shortcuts could start a run while another run or Auto-Sort was
+  active; they now show a hint instead.
+
+---
+
 ## [2.1.0] — 2026-10-18
 
 ### 🛠 Reliability release — fixes from a full audit

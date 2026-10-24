@@ -12,34 +12,12 @@ The wizard is a modal Toplevel window that blocks the main GUI until
 the user either completes setup or closes it.
 """
 
-import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog
 
 from prefs import get_pref, save_prefs, load_prefs
-
-# ---------------------------------------------------------------------------
-# Colour palette (matches gui.py)
-# ---------------------------------------------------------------------------
-
-BG         = "#f5f5f7"
-SURFACE    = "#ffffff"
-ACCENT     = "#007AFF"
-ACCENT_DIM = "#0056b3"
-FG         = "#1d1d1f"
-FG_DIM     = "#86868b"
-GREEN      = "#34C759"
-BORDER     = "#e5e5e7"
-
-
-def _font(size: int = 10, weight: str = "normal") -> tuple:
-    if sys.platform == "darwin":
-        return ("SF Pro Display", size, weight)
-    elif sys.platform == "win32":
-        return ("Segoe UI", size, weight)
-    else:
-        return ("Ubuntu", size, weight)
+from ui_theme import THEMES, Animator, font as _font
 
 
 # ---------------------------------------------------------------------------
@@ -70,11 +48,13 @@ class OnboardingWizard(tk.Toplevel):
 
         self.result: bool = False
         self.confirmed_folder: str = str(Path.home() / "Downloads")
+        # Follow the theme the user picked in the main window
+        self._p = THEMES.get(get_pref("theme", "light"), THEMES["light"])
+        self._anim = Animator(self, enabled=lambda: bool(get_pref("animations", True)))
 
         self.title("Welcome to ARISE-I")
-        self.geometry("560x540")
         self.resizable(False, False)
-        self.configure(bg=BG)
+        self.configure(bg=self._p["BG"])
 
         # Make it modal
         self.transient(parent)
@@ -82,100 +62,156 @@ class OnboardingWizard(tk.Toplevel):
 
         # Close = skip onboarding (don't block forever)
         self.protocol("WM_DELETE_WINDOW", self._skip)
+        self.bind("<Return>", lambda e: self._complete())
+        self.bind("<Escape>", lambda e: self._skip())
 
         self._folder_var = tk.StringVar(value=self.confirmed_folder)
         self._build()
+        self._folder_var.trace_add("write", lambda *_: self._validate())
+        self._validate()
+        self.update_idletasks()
+        self._center_on(parent, 600, self.winfo_reqheight())
+        self._fade_in()
+
+    def _center_on(self, parent: tk.Misc, w: int, h: int) -> None:
+        parent.update_idletasks()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        if pw > 1 and ph > 1:
+            x = max(0, parent.winfo_rootx() + (pw - w) // 2)
+            y = max(0, parent.winfo_rooty() + (ph - h) // 2)
+        else:
+            x = (self.winfo_screenwidth() - w) // 2
+            y = (self.winfo_screenheight() - h) // 2
+        self.geometry(f"{w}x{h}+{x}+{y}")
+
+    def _fade_in(self) -> None:
+        def _alpha(t):
+            try: self.attributes("-alpha", t)
+            except tk.TclError: pass
+        _alpha(0.0)
+        self._anim.run("alpha", 320, _alpha)
+        # Let the hero title glide up into place
+        self._anim.run("hero", 520, lambda t: self._hero_title.pack_configure(
+            pady=(int(44 - 12 * t), 4)))
+
+    def _hover(self, widget: tk.Misc, base: str, hover: str) -> None:
+        widget.bind("<Enter>", lambda e: widget.configure(bg=self._p[hover]), add="+")
+        widget.bind("<Leave>", lambda e: widget.configure(bg=self._p[base]), add="+")
 
     # ------------------------------------------------------------------ #
     # Build UI                                                             #
     # ------------------------------------------------------------------ #
 
     def _build(self) -> None:
+        P = self._p
         # ── Hero section ──────────────────────────────────────────────
-        hero = tk.Frame(self, bg=ACCENT)
+        hero = tk.Frame(self, bg=P["ACCENT"])
         hero.pack(fill="x")
 
-        tk.Label(
+        self._hero_title = tk.Label(
             hero, text="ARISE-I",
-            font=_font(36, "bold"), fg="white", bg=ACCENT,
-        ).pack(pady=(28, 4))
+            font=_font(34, "bold"), fg="white", bg=P["ACCENT"],
+        )
+        self._hero_title.pack(pady=(32, 4))
 
         tk.Label(
-            hero, text="Your personal file organizer",
-            font=_font(13), fg="white", bg=ACCENT, padx=20,
-        ).pack(pady=(0, 24))
+            hero, text="Your personal, AI-powered file organizer",
+            font=_font(12), fg="white", bg=P["ACCENT"], padx=20,
+        ).pack(pady=(0, 26))
 
         # ── Feature cards ─────────────────────────────────────────────
-        cards_frame = tk.Frame(self, bg=BG, padx=32)
-        cards_frame.pack(fill="x", pady=20)
+        cards_frame = tk.Frame(self, bg=P["BG"], padx=32)
+        cards_frame.pack(fill="x", pady=(20, 12))
+        cards_frame.columnconfigure(0, weight=1, uniform="card")
+        cards_frame.columnconfigure(1, weight=1, uniform="card")
 
-        for row_idx in range(0, len(_FEATURES), 2):
-            row = tk.Frame(cards_frame, bg=BG)
-            row.pack(fill="x", pady=4)
-            for col_idx in range(2):
-                fi = row_idx + col_idx
-                if fi >= len(_FEATURES):
-                    break
-                emoji, title, desc = _FEATURES[fi]
-                card = tk.Frame(row, bg=SURFACE, padx=12, pady=10)
-                card.pack(side="left", expand=True, fill="both", padx=(0, 8) if col_idx == 0 else (8, 0))
-                tk.Label(card, text=emoji, font=_font(18), bg=SURFACE).pack(anchor="w")
-                tk.Label(card, text=title, font=_font(11, "bold"), fg=FG, bg=SURFACE).pack(anchor="w")
-                tk.Label(card, text=desc, font=_font(9), fg=FG_DIM, bg=SURFACE,
-                         wraplength=180, justify="left").pack(anchor="w")
+        for fi, (emoji, title, desc) in enumerate(_FEATURES):
+            card = tk.Frame(cards_frame, bg=P["SURFACE"], padx=14, pady=12,
+                            highlightthickness=1, highlightbackground=P["BORDER"])
+            card.grid(row=fi // 2, column=fi % 2, sticky="nsew",
+                      padx=(0, 6) if fi % 2 == 0 else (6, 0), pady=6)
+            row = tk.Frame(card, bg=P["SURFACE"])
+            row.pack(anchor="w")
+            tk.Label(row, text=emoji, font=_font(14), fg=P["ACCENT"],
+                     bg=P["SURFACE"]).pack(side="left", padx=(0, 8))
+            tk.Label(row, text=title, font=_font(11, "bold"), fg=P["FG"],
+                     bg=P["SURFACE"]).pack(side="left")
+            tk.Label(card, text=desc, font=_font(9), fg=P["FG_DIM"], bg=P["SURFACE"],
+                     wraplength=220, justify="left").pack(anchor="w", pady=(4, 0))
 
         # ── Folder picker ─────────────────────────────────────────────
-        sep = tk.Frame(self, bg=BORDER, height=1)
-        sep.pack(fill="x", padx=32)
-
-        picker_frame = tk.Frame(self, bg=BG, padx=32, pady=16)
+        picker_frame = tk.Frame(self, bg=P["BG"], padx=32, pady=8)
         picker_frame.pack(fill="x")
 
-        tk.Label(picker_frame, text="Choose a folder to organize:",
-                 font=_font(11, "bold"), fg=FG, bg=BG).pack(anchor="w")
-        tk.Label(picker_frame, text="ARISE-I will use this as its default.",
-                 font=_font(9), fg=FG_DIM, bg=BG).pack(anchor="w", pady=(2, 10))
+        tk.Label(picker_frame, text="Choose a folder to organize",
+                 font=_font(11, "bold"), fg=P["FG"], bg=P["BG"]).pack(anchor="w")
+        tk.Label(picker_frame, text="Downloads is a great place to start. You can change it anytime.",
+                 font=_font(9), fg=P["FG_DIM"], bg=P["BG"]).pack(anchor="w", pady=(2, 8))
 
-        entry_row = tk.Frame(picker_frame, bg=BG)
-        entry_row.pack(fill="x")
-
+        self._entry_box = tk.Frame(picker_frame, bg=P["SURFACE"], highlightthickness=1,
+                                   highlightbackground=P["BORDER"])
+        self._entry_box.pack(fill="x")
+        tk.Label(self._entry_box, text="📁", font=_font(11), fg=P["FG_DIM"],
+                 bg=P["SURFACE"]).pack(side="left", padx=(10, 4))
         self._folder_entry = tk.Entry(
-            entry_row,
+            self._entry_box,
             textvariable=self._folder_var,
-            font=_font(10), bg=SURFACE, fg=FG,
-            insertbackground=ACCENT, relief="flat",
-            bd=0, highlightthickness=1,
-            highlightcolor=ACCENT, highlightbackground=BORDER,
-            readonlybackground=SURFACE,
+            font=_font(10), bg=P["SURFACE"], fg=P["FG"],
+            insertbackground=P["ACCENT"], relief="flat",
+            bd=0, highlightthickness=0,
+            readonlybackground=P["SURFACE"],
         )
-        self._folder_entry.pack(side="left", fill="x", expand=True, ipady=6, padx=(0, 8))
+        self._folder_entry.pack(side="left", fill="x", expand=True, ipady=7)
 
-        tk.Button(
-            entry_row, text="Browse",
-            font=_font(10), fg=ACCENT, bg=BG,
-            activebackground=BG, activeforeground=ACCENT_DIM,
-            relief="flat", bd=0, padx=10, pady=6,
+        browse = tk.Button(
+            self._entry_box, text="Browse…",
+            font=_font(10), fg=P["ACCENT"], bg=P["SURFACE"],
+            activebackground=P["HOVER"], activeforeground=P["ACCENT_D"],
+            relief="flat", bd=0, padx=12, pady=4,
             cursor="hand2", command=self._browse,
-        ).pack(side="left")
+        )
+        browse.pack(side="right", padx=4)
+        self._hover(browse, "SURFACE", "HOVER")
+
+        self._folder_hint = tk.Label(picker_frame, text="", font=_font(9),
+                                     fg=P["FG_DIM"], bg=P["BG"])
+        self._folder_hint.pack(anchor="w", pady=(4, 0))
 
         # ── CTA button ────────────────────────────────────────────────
-        cta_frame = tk.Frame(self, bg=BG, padx=32, pady=12)
+        cta_frame = tk.Frame(self, bg=P["BG"], padx=32, pady=10)
         cta_frame.pack(fill="x")
 
-        tk.Button(
+        cta = tk.Button(
             cta_frame,
             text="Let's Go  →",
-            font=_font(13, "bold"), fg="white", bg=ACCENT,
-            activebackground=ACCENT_DIM, activeforeground="white",
-            relief="flat", bd=0, padx=40, pady=12,
+            font=_font(12, "bold"), fg="white", bg=P["ACCENT"],
+            activebackground=P["ACCENT_D"], activeforeground="white",
+            relief="flat", bd=0, padx=40, pady=11,
             cursor="hand2", command=self._complete,
-        ).pack(expand=True)
+        )
+        cta.pack(fill="x")
+        self._hover(cta, "ACCENT", "ACCENT_D")
 
+        foot = tk.Frame(cta_frame, bg=P["BG"])
+        foot.pack(fill="x", pady=(8, 0))
         tk.Label(
-            cta_frame,
-            text="Your files never leave your computer. Nothing is deleted.",
-            font=_font(9), fg=FG_DIM, bg=BG,
-        ).pack(pady=(8, 0))
+            foot,
+            text="🔒  Your files never leave your computer. Nothing is deleted.",
+            font=_font(9), fg=P["FG_DIM"], bg=P["BG"],
+        ).pack(side="left")
+        skip = tk.Label(foot, text="Skip for now", font=_font(9, "underline"),
+                        fg=P["FG_DIM"], bg=P["BG"], cursor="hand2")
+        skip.pack(side="right")
+        skip.bind("<Button-1>", lambda e: self._skip())
+
+    def _validate(self) -> None:
+        P = self._p
+        folder = self._folder_var.get().strip()
+        ok = bool(folder) and Path(folder).expanduser().is_dir()
+        self._folder_hint.configure(
+            text="✓  Folder found" if ok else "⚠  Folder not found — your Downloads folder will be used",
+            fg=P["GREEN"] if ok else P["YELLOW"])
+        self._entry_box.configure(highlightbackground=P["BORDER"] if ok else P["YELLOW"])
 
     # ------------------------------------------------------------------ #
     # Actions                                                              #

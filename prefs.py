@@ -12,6 +12,7 @@ Keys used by the GUI:
     debounce         : float  — Auto-sort debounce seconds
     window_geometry  : str    — Last window geometry string (e.g. "860x600+100+50")
     theme            : str    — "light" or "dark" (toggled from the GUI header)
+    animations       : bool   — False = reduced motion (View → Animations)
 """
 
 import json
@@ -31,6 +32,7 @@ _DEFAULTS: dict = {
     "debounce":        2.0,
     "window_geometry": "",
     "theme":           "light",
+    "animations":      True,
 }
 
 
