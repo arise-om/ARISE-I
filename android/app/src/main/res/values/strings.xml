@@ -238,4 +238,15 @@
     <string name="notif_access_revoked">All files access was turned off. Auto-sort is paused.</string>
     <string name="tile_subtitle_on">Watching %d folders</string>
     <string name="tile_subtitle_off">Off</string>
+
+    <!-- Widget & share target -->
+    <string name="widget_description">See loose files at a glance and open the Plan in one tap</string>
+    <string name="widget_organize">Organize</string>
+    <string name="widget_no_folder">Open ARISE-I to pick a folder</string>
+    <string name="share_label">Sort with ARISE-I</string>
+    <plurals name="share_saved">
+        <item quantity="one">Saved %d shared file — here\'s where it would go</item>
+        <item quantity="other">Saved %d shared files — here\'s where they would go</item>
+    </plurals>
+    <string name="share_failed">Couldn\'t save the shared file. Try sharing it again.</string>
 </resources>

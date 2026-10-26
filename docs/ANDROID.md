@@ -16,6 +16,8 @@ A native Kotlin + Jetpack Compose port of ARISE-I. It sorts files with the same 
 | **Undo** | From History you can undo a whole run or a single file. Undo never overwrites anything: a file that took the original name since keeps it, and the restored file gets " (1)". If you moved the folder, use **Locate it** to point the run at its new location. |
 | **Auto-sort** | Each folder can be set to **Off**, **Every 15 minutes** (WorkManager, easy on battery) or **Instantly**. Instantly uses a FileObserver in a foreground service and shows a small ongoing notification. Auto-sort only moves a file once it has stopped changing. Result notifications have **Undo** and **Review** buttons, and the Quick Settings tile pauses or resumes every folder. |
 | **Health** | Every 6 hours the app finishes any interrupted run, warns about low storage and files waiting more than a week, and retrains the model when the correction rate climbs. |
+| **Share target** | Share any file to **Sort with ARISE-I**. It is saved into your current folder and the Plan opens with just that file, so you see where it would go. |
+| **Widget** | A 2×1 home-screen widget shows the folder and its loose-file count. Its **Organize** button opens the Plan; it never sorts blind. |
 | **Custom categories** | Put an `arise-i.config.yaml` in the folder. The format is the same as on desktop. |
 
 Not on Android: the desktop's Python plugins (`~/.arise-i/plugins`).
@@ -23,6 +25,8 @@ Not on Android: the desktop's Python plugins (`~/.arise-i/plugins`).
 ---
 
 ## Architecture
+
+Diagrams of the screens, key flows and the move-journal states are on the [FigJam board](https://www.figma.com/board/8qaqEUr8h1iJJGFsipjlxi).
 
 ```
 android/
@@ -108,4 +112,6 @@ Without them the APK is signed with the debug key. It still installs, but you ca
 4. Set Downloads to **Instantly** and `adb push` a new file. It should be sorted within a few seconds, and the notification should offer Undo.
 5. A file like `mystery.bin` goes to Review. Swipe it right, then tap Undo on the snackbar.
 6. Start a large run and kill the app with `adb shell am kill tech.ironlabs.arisei`. On reopening, the "We tidied up an interrupted run" card should appear and every file should be present.
-7. Check TalkBack, 200 % font size, dark mode and Settings → Reduce motion.
+7. Share a photo from Gallery to **Sort with ARISE-I**. The Plan should open with only that file.
+8. Add the widget. It should show the loose-file count, its Organize button should open the Plan, and the count should drop after a run.
+9. Check TalkBack, 200 % font size, dark mode and Settings → Reduce motion.

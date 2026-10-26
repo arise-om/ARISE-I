@@ -146,12 +146,13 @@ class AriseViewModel(app: Application) : AndroidViewModel(app) {
 
     // ── Plan & run ──────────────────────────────────────────────────────────
 
-    fun startPlan() {
+    /** Open the Plan for the current folder; [only] limits it to some file names. */
+    fun startPlan(only: Set<String>? = null) {
         val folder = settings.value.current ?: return
         _state.update { it.copy(plan = PlanUi(folder)) }
         viewModelScope.launch {
             val ui = try {
-                PlanUi(folder, plan = repo.plan(folder))
+                PlanUi(folder, plan = repo.plan(folder, only))
             } catch (e: ProtectedFolderException) {
                 PlanUi(folder, error = PlanError.PROTECTED)
             } catch (e: FolderNotFoundException) {

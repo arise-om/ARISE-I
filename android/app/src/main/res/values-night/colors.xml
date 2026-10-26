@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="arise_bg">#FF1C1C1E</color>
+    <color name="widget_bg">#FF2C2C2E</color>
+    <color name="widget_fg">#FFF2F2F7</color>
+    <color name="widget_fg_dim">#FF98989F</color>
 </resources>
