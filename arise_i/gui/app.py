@@ -21,10 +21,13 @@ try:
 except ImportError:
     print("[ARISE-I] tkinter not installed.\n  Ubuntu: sudo apt install python3-tk"); sys.exit(1)
 
-from file_organizer import (
-    REVIEW_FOLDER,
+from arise_i import __version__
+from arise_i.constants import REVIEW_FOLDER
+from arise_i.core.classifier import get_classifier
+from arise_i.core.health import HealthMonitor
+from arise_i.core.learning import LearningStore
+from arise_i.core.organizer import (
     Stats,
-    __version__,
     _load_manifest,
     get_unique_destination,
     is_protected_dir,
@@ -32,38 +35,15 @@ from file_organizer import (
     organize_folder,
     undo_last_run,
 )
-from prefs import load_prefs, save_prefs, set_pref
-import onboarding
-from ui_theme import RECOLOR_KEYS as _RECOLOR_KEYS
-from ui_theme import THEMES as _THEMES
-from ui_theme import Animator, ToggleSwitch, ease_in_out, mix, to_hex
-from ui_theme import font as _font
+from arise_i.core.prefs import load_prefs, save_prefs, set_pref
+from arise_i.gui import onboarding
+from arise_i.gui.theme import RECOLOR_KEYS as _RECOLOR_KEYS
+from arise_i.gui.theme import THEMES as _THEMES
+from arise_i.gui.theme import Animator, ToggleSwitch, ease_in_out, mix, to_hex
+from arise_i.gui.theme import font as _font
 
-try:
-    from plugin_loader import load_plugins
-except ImportError:
-    def load_plugins(plugin_dir=None): return []  # type: ignore[misc]
-
-try:
-    from classifier import get_classifier
-except ImportError:
-    get_classifier = None  # type: ignore[assignment]
-
-try:
-    from file_watcher import WATCHDOG_AVAILABLE, AriseIEventHandler
-except Exception:
-    WATCHDOG_AVAILABLE = False
-    AriseIEventHandler = None
-
-try:
-    from health_monitor import HealthMonitor
-except ImportError:
-    HealthMonitor = None  # type: ignore[assignment,misc]
-
-try:
-    from learning_store import LearningStore
-except ImportError:
-    LearningStore = None  # type: ignore[assignment,misc]
+from arise_i.core.plugins import load_plugins
+from arise_i.core.watcher import WATCHDOG_AVAILABLE
 
 APP_VERSION = __version__
 
@@ -207,24 +187,20 @@ class AriseIApp(tk.Tk):
         self._poll_log_queue()
 
     def _init_ai_subsystems(self) -> None:
-        if LearningStore is not None:
-            try:
-                self._learning_store = LearningStore(
-                    on_retrain=self._on_model_retrained
-                )
-            except Exception:
-                self._learning_store = None
-        if HealthMonitor is not None:
-            try:
-                target = Path(self._target_var.get()).expanduser().resolve()
-                self._health_monitor = HealthMonitor(
-                    target_dir=target,
-                    log_queue=self._log_queue,
-                    learning_store=self._learning_store,
-                )
-                self._health_monitor.start()
-            except Exception:
-                self._health_monitor = None
+        try:
+            self._learning_store = LearningStore(on_retrain=self._on_model_retrained)
+        except Exception:
+            self._learning_store = None
+        try:
+            target = Path(self._target_var.get()).expanduser().resolve()
+            self._health_monitor = HealthMonitor(
+                target_dir=target,
+                log_queue=self._log_queue,
+                learning_store=self._learning_store,
+            )
+            self._health_monitor.start()
+        except Exception:
+            self._health_monitor = None
 
     def _on_model_retrained(self) -> None:
         # The shared classifier reloads model.pkl on its next run
@@ -1134,12 +1110,10 @@ class AriseIApp(tk.Tk):
 
         categories = load_categories(None, target)
         choices    = list(categories.keys()) + ["Others"]
-        classifier = None
-        if get_classifier is not None:
-            try:
-                classifier = get_classifier(categories)
-            except Exception:
-                classifier = None
+        try:
+            classifier = get_classifier(categories)
+        except Exception:
+            classifier = None
 
         for item in files:
             suggestions = self._suggest_categories(classifier, item, categories)
@@ -1223,7 +1197,7 @@ class AriseIApp(tk.Tk):
                 try:
                     self._learning_store.record(
                         path=item,
-                        predicted="__Review__",
+                        predicted=REVIEW_FOLDER,
                         confirmed=category,
                         confidence=0.0,
                         layer="user_review",
@@ -1512,7 +1486,7 @@ class AriseIApp(tk.Tk):
 
         def _worker():
             from watchdog.observers import Observer as _Obs
-            from file_watcher import AriseIEventHandler as _H
+            from arise_i.core.watcher import AriseIEventHandler as _H
 
             class _GUIHandler(_H):
                 def _run_organizer(inner):

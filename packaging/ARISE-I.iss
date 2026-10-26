@@ -11,6 +11,8 @@
 #define AppExeName "ARISE-I.exe"
 
 [Setup]
+; Paths below are relative to the repository root.
+SourceDir=..
 AppId={{2E6119A1-066E-4E6A-AD55-520EDA2D391B}
 AppName={#AppName}
 AppVersion={#AppVersion}

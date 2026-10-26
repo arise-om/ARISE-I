@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from arise_i.constants import APP_DIR, REVIEW_FOLDER
+
 logger = logging.getLogger("arise_i.classifier")
 
 # ── Optional: byte-level MIME detection ─────────────────────────────────────
@@ -95,14 +97,8 @@ _MIME_PREFIX: list[tuple[str, str, float]] = [
     ("text/plain",       "Documents",     0.55),  # intentionally low — ambiguous
 ]
 
-# ── Assignment detection (optional) ──────────────────────────────────────────
-try:
-    from assignment_classifier import AssignmentInfo, parse_assignment
-    _ASSIGNMENT_AVAILABLE = True
-except ImportError:
-    _ASSIGNMENT_AVAILABLE = False
-    AssignmentInfo = None        # type: ignore[assignment,misc]
-    parse_assignment = None      # type: ignore[assignment,misc]
+# ── Assignment detection ─────────────────────────────────────────────────────
+from arise_i.core.assignment import AssignmentInfo, parse_assignment  # noqa: E402
 
 # ── Filename heuristics ──────────────────────────────────────────────────────
 
@@ -173,7 +169,7 @@ class SmartClassifier:
     model_path          : override for the pickled ML model location
     """
 
-    REVIEW_FOLDER = "__Review__"
+    REVIEW_FOLDER = REVIEW_FOLDER
 
     def __init__(
         self,
@@ -183,7 +179,7 @@ class SmartClassifier:
     ) -> None:
         self.categories            = categories
         self.confidence_threshold  = confidence_threshold
-        self._model_path           = model_path or (Path.home() / ".arise-i" / "model.pkl")
+        self._model_path           = model_path or (APP_DIR / "model.pkl")
         self._ext_map              = self._build_ext_map()
         self._ml_pipeline: Optional[object] = None
         self._ml_labels:   list[str]        = []
@@ -235,12 +231,11 @@ class SmartClassifier:
     def classify(self, path: Path) -> ClassificationResult:
         """Classify *path* through all layers; return the highest-confidence result."""
         # ── Assignment detection (runs alongside other layers) ───────────
-        _assignment_info: "AssignmentInfo | None" = None
-        if _ASSIGNMENT_AVAILABLE and parse_assignment is not None:
-            _assignment_info = parse_assignment(path)
+        _assignment_info: "AssignmentInfo | None" = parse_assignment(path)
 
+        ext_result = self._by_extension(path)
         results = [
-            self._by_extension(path),
+            ext_result,
             self._by_mime(path),
             self._by_heuristics(path),
         ]
@@ -249,7 +244,6 @@ class SmartClassifier:
         # whose *category* is the file-type folder (from extension) so the
         # organiser can build:  Subject / Assignment N / <file-type> /
         if _assignment_info is not None:
-            ext_result = self._by_extension(path)
             file_type_cat = ext_result.category if ext_result.confidence > 0.5 else "Others"
             results.append(ClassificationResult(
                 category=file_type_cat,

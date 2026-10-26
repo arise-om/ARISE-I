@@ -10,12 +10,12 @@ A debounce timer prevents sorting files that are still being written
 (e.g. a download in progress).
 
 Usage (standalone):
-    python file_watcher.py --path ~/Downloads
-    python file_watcher.py --path ~/Downloads --debounce 3.5
-    python file_watcher.py --path ~/Downloads --dry-run
+    python -m arise_i.core.watcher --path ~/Downloads
+    python -m arise_i.core.watcher --path ~/Downloads --debounce 3.5
+    python -m arise_i.core.watcher --path ~/Downloads --dry-run
 
 Or invoked via the main CLI:
-    python file_organizer.py --watch --path ~/Downloads
+    arise-i --watch --path ~/Downloads
 
 Requires:
     pip install watchdog
@@ -34,7 +34,7 @@ try:
     WATCHDOG_AVAILABLE = True
 except ImportError:
     # watchdog is optional — only required for --watch / Watch button.
-    # We raise here so callers (gui.py, file_organizer.py) can catch it
+    # We raise here so callers (the GUI, the CLI) can catch it
     # gracefully rather than the whole program dying.
     WATCHDOG_AVAILABLE = False
     # Provide stub base-classes so type-checking passes even without watchdog
@@ -45,7 +45,7 @@ except ImportError:
     class Observer:  # type: ignore[no-redef]
         pass
 
-from file_organizer import (
+from arise_i.core.organizer import (
     Color,
     Stats,
     boot_sequence,
@@ -53,16 +53,6 @@ from file_organizer import (
     organize_folder,
     skip_reason,
 )
-
-try:
-    from plugin_loader import ClassifierPlugin
-except ImportError:  # pragma: no cover
-    ClassifierPlugin = None  # type: ignore[assignment,misc]
-
-try:
-    from learning_store import LearningStore as _LS
-except ImportError:
-    _LS = None  # type: ignore[assignment,misc]
 
 
 # ---------------------------------------------------------------------------
@@ -324,11 +314,11 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python file_watcher.py                           # watch ~/Downloads (live)
-  python file_watcher.py --dry-run                 # preview only
-  python file_watcher.py --path ~/Desktop          # custom folder
-  python file_watcher.py --debounce 5              # wait 5s of quiet
-  python file_watcher.py --config my.config.yaml   # custom categories
+  python -m arise_i.core.watcher                           # watch ~/Downloads (live)
+  python -m arise_i.core.watcher --dry-run                 # preview only
+  python -m arise_i.core.watcher --path ~/Desktop          # custom folder
+  python -m arise_i.core.watcher --debounce 5              # wait 5s of quiet
+  python -m arise_i.core.watcher --config my.config.yaml   # custom categories
         """,
     )
     parser.add_argument(

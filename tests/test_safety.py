@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from file_organizer import (
+from arise_i.core.organizer import (
     CONFIG_FILENAME,
     DEFAULT_CATEGORIES,
     is_protected_dir,
@@ -132,16 +132,16 @@ class TestCli:
 
     @pytest.fixture(autouse=True)
     def no_boot_delay(self, monkeypatch):
-        monkeypatch.setattr("file_organizer.boot_sequence", lambda dry_run=False: None)
+        monkeypatch.setattr("arise_i.core.organizer.boot_sequence", lambda dry_run=False: None)
 
     def test_dry_run_exit_code_and_no_moves(self, tmp_path):
-        from file_organizer import main
+        from arise_i.core.organizer import main
         (tmp_path / "a.pdf").write_text("x")
         assert main(["--path", str(tmp_path), "--dry-run"]) == 0
         assert (tmp_path / "a.pdf").exists()
 
     def test_live_run_then_undo(self, tmp_path):
-        from file_organizer import main
+        from arise_i.core.organizer import main
         (tmp_path / "a.pdf").write_text("x")
         assert main(["--path", str(tmp_path)]) == 0
         assert (tmp_path / "PDFs" / "a.pdf").exists()

@@ -8,13 +8,15 @@ A polished Python CLI tool that automatically sorts files in a folder
 (like Downloads) into category folders based on file type.
 
 Usage:
-    python file_organizer.py --dry-run              # preview only, moves nothing
-    python file_organizer.py                         # actually organizes ~/Downloads
-    python file_organizer.py --path "/path/to/dir"  # custom folder
-    python file_organizer.py --undo                  # reverse the last run
-    python file_organizer.py --config my.config.yaml # custom category mappings
-    python file_organizer.py --watch                 # daemon: sort files as they arrive
-    python file_organizer.py --watch --debounce 3    # watch with custom debounce (seconds)
+    arise-i --dry-run              # preview only, moves nothing
+    arise-i                        # actually organizes ~/Downloads
+    arise-i --path "/path/to/dir"  # custom folder
+    arise-i --undo                 # reverse the last run
+    arise-i --config my.config.yaml # custom category mappings
+    arise-i --watch                # daemon: sort files as they arrive
+    arise-i --watch --debounce 3   # watch with custom debounce (seconds)
+
+``python -m arise_i`` is equivalent to ``arise-i``.
 """
 
 import argparse
@@ -39,36 +41,19 @@ if sys.version_info < (3, 10):  # pragma: no cover
     )
     sys.exit(1)
 
-import yaml  # PyYAML — only external dependency
+import yaml  # PyYAML
 
-__version__ = "2.1.0"
+from arise_i import __version__
+from arise_i.constants import CONFIG_FILENAME, LOG_FILE, LOG_MANIFEST, REVIEW_FOLDER
+from arise_i.core.classifier import SmartClassifier, get_classifier
+from arise_i.core.learning import LearningStore
+from arise_i.core.paths import sanitize_folder_name
+from arise_i.core.plugins import classify_with_plugins, load_plugins
+
+__all__ = ["__version__", "CONFIG_FILENAME", "LOG_FILE", "LOG_MANIFEST", "REVIEW_FOLDER"]
 
 # Keep ARISE-I's file logging isolated from an application's root logger.
 logger = logging.getLogger("arise_i")
-
-try:
-    from plugin_loader import ClassifierPlugin, classify_with_plugins, load_plugins
-    _PLUGINS_AVAILABLE = True
-except ImportError:  # pragma: no cover — only missing during isolated unit tests
-    _PLUGINS_AVAILABLE = False
-    ClassifierPlugin = None  # type: ignore[assignment,misc]
-    def classify_with_plugins(path, plugins): return None  # type: ignore[misc]
-    def load_plugins(plugin_dir=None): return []  # type: ignore[misc]
-
-try:
-    from classifier import SmartClassifier, get_classifier
-    _CLASSIFIER_AVAILABLE = True
-except ImportError:
-    _CLASSIFIER_AVAILABLE = False
-    SmartClassifier = None   # type: ignore[assignment,misc]
-    get_classifier  = None   # type: ignore[assignment,misc]
-
-try:
-    from learning_store import LearningStore
-    _LEARNING_AVAILABLE = True
-except ImportError:
-    _LEARNING_AVAILABLE = False
-    LearningStore = None     # type: ignore[assignment,misc]
 
 
 # ---------------------------------------------------------------------------
@@ -185,9 +170,6 @@ DEFAULT_CATEGORIES: dict[str, list[str]] = {
 # Config file loader
 # ---------------------------------------------------------------------------
 
-CONFIG_FILENAME = "arise-i.config.yaml"
-
-
 def _normalize_categories(data: dict) -> dict[str, list[str]] | None:
     """Coerce a parsed YAML mapping into {category: [".ext", ...]}.
 
@@ -273,18 +255,8 @@ def load_categories(
 # ---------------------------------------------------------------------------
 
 def _sanitize_category_name(name: str) -> str:
-    """Sanitize category names to prevent path traversal and injection.
-
-    Removes dangerous characters and path traversal sequences like '..'
-    to ensure category names are safe for path construction.
-    """
-    import re
-    # Remove path traversal sequences and dangerous characters
-    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', name)
-    name = name.replace('..', '')
-    name = name.strip('. ')
-    # Ensure name is not empty after sanitization
-    return name if name else "Others"
+    """Make a category name safe to use as a folder name ("Others" if empty)."""
+    return sanitize_folder_name(name, fallback="Others")
 
 def build_extension_map(categories: dict[str, list[str]]) -> dict[str, str]:
     """Flip {folder: [ext, ext, ...]} into {ext: folder} for O(1) lookup."""
@@ -340,12 +312,6 @@ def get_unique_destination(dest_folder: Path, filename: str) -> Path:
 # ---------------------------------------------------------------------------
 # Persistent run log (JSON manifest for undo)
 # ---------------------------------------------------------------------------
-
-LOG_MANIFEST = ".arise-i-log.json"
-
-# Low-confidence files are quarantined here (mirrors SmartClassifier.REVIEW_FOLDER)
-REVIEW_FOLDER = "__Review__"
-
 
 def _load_manifest(target_dir: Path) -> list[dict]:
     """Load the full history manifest from disk (list of run entries)."""
@@ -434,7 +400,7 @@ def _record_run(target_dir: Path, moves: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 
 # Files ARISE-I generates or reads itself — never move these during a scan
-_OWN_FILES = {"arise-i.log", LOG_MANIFEST, CONFIG_FILENAME}
+_OWN_FILES = {LOG_FILE, LOG_MANIFEST, CONFIG_FILENAME}
 
 # OS metadata files that must stay put (moving desktop.ini breaks a Windows
 # folder's custom name/icon).  Compared case-insensitively.
@@ -504,7 +470,7 @@ def _setup_file_logger(target_dir: Path, dry_run: bool = False) -> logging.Logge
             handler.close()
 
     if not dry_run:
-        log_file = target_dir / "arise-i.log"
+        log_file = target_dir / LOG_FILE
         handler = logging.FileHandler(log_file, encoding="utf-8")
         handler._arise_i_file_handler = True  # type: ignore[attr-defined]
         handler.setFormatter(
@@ -638,7 +604,7 @@ def organize_folder(
         (relocation, simulation, skip, error).  Used by the GUI to populate
         the live log feed.  No-op when None — all CLI behaviour unchanged.
     plugins : list, optional
-        Pre-loaded classifier plugin callables (from ``plugin_loader.load_plugins``).
+        Pre-loaded classifier plugin callables (from ``arise_i.core.plugins.load_plugins``).
         Each plugin is tried in order before falling back to the extension map.
         Pass ``None`` (default) to skip all plugin logic.
 
@@ -702,13 +668,12 @@ def _organize_items(
     stats   = Stats()
     moves: list[dict] = []  # populated only during live runs (for undo log)
 
-    # Instantiate AI classifier (falls back gracefully if classifier.py absent)
+    # Instantiate AI classifier (falls back to the extension map if it fails)
     _smart: SmartClassifier | None = None
-    if _CLASSIFIER_AVAILABLE and get_classifier is not None:
-        try:
-            _smart = get_classifier(categories, confidence_threshold)
-        except Exception as _exc:
-            logger.warning("SmartClassifier init failed (%s) — using ext_map fallback.", _exc)
+    try:
+        _smart = get_classifier(categories, confidence_threshold)
+    except Exception as _exc:
+        logger.warning("SmartClassifier init failed (%s) — using ext_map fallback.", _exc)
 
     print(f"{Color.CYAN}ARISE-I >> Target acquired: {target_path}{Color.RESET}\n")
 
@@ -756,7 +721,7 @@ def _organize_items(
             _badge       = _result.badge
             _layer       = _result.layer
         else:
-            # Legacy ext_map fallback (no classifier.py)
+            # Extension-map fallback (classifier failed to initialise)
             ext          = item.suffix.lower()
             raw_category = ext_map.get(ext, "Others")
             _badge       = "EXT"
@@ -1074,7 +1039,7 @@ def main(argv: list[str] | None = None) -> int:
     boot_sequence(dry_run=args.dry_run)
 
     # Load plugins once — shared across all modes
-    active_plugins = load_plugins() if _PLUGINS_AVAILABLE else []
+    active_plugins = load_plugins()
     if active_plugins:
         print(
             f"{Color.CYAN}>> {len(active_plugins)} classifier plugin(s) active.{Color.RESET}\n"
@@ -1082,7 +1047,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Live runs feed the local learning log, exactly like the GUI does
     store = None
-    if _LEARNING_AVAILABLE and not args.dry_run and not args.undo:
+    if not args.dry_run and not args.undo:
         try:
             store = LearningStore()
         except Exception as exc:
@@ -1090,7 +1055,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.watch:
         # Import lazily so watchdog is only required when --watch is used
-        from file_watcher import WATCHDOG_AVAILABLE as _WD_OK, watch_folder
+        from arise_i.core.watcher import WATCHDOG_AVAILABLE as _WD_OK, watch_folder
         if not _WD_OK:
             print(
                 f"{Color.RED}✗ watchdog is required for --watch mode.\n"

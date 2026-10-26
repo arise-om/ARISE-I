@@ -1,7 +1,7 @@
 """
 tests/test_watcher.py
 ---------------------
-Unit tests for file_watcher — AriseIEventHandler and _DebounceTimer.
+Unit tests for arise_i.core.watcher — AriseIEventHandler and _DebounceTimer.
 
 Strategy
 --------
@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # We import from the project root (no package install needed).
-from file_watcher import (
+from arise_i.core.watcher import (
     AriseIEventHandler,
     _DebounceTimer,
     watch_folder,
@@ -106,7 +106,7 @@ class TestAriseIEventHandlerFiltering:
 
     @pytest.fixture
     def handler(self, tmp_path):
-        with patch("file_watcher.organize_folder") as mock_org:
+        with patch("arise_i.core.watcher.organize_folder") as mock_org:
             h = AriseIEventHandler(
                 target_dir=tmp_path,
                 debounce=0.05,  # short debounce so tests run fast
@@ -158,7 +158,7 @@ class TestAriseIEventHandlerTrigger:
 
     @pytest.fixture
     def handler_and_mock(self, tmp_path):
-        with patch("file_watcher.organize_folder", return_value=MagicMock()) as mock_org:
+        with patch("arise_i.core.watcher.organize_folder", return_value=MagicMock()) as mock_org:
             h = AriseIEventHandler(
                 target_dir=tmp_path,
                 debounce=0.05,
@@ -248,7 +248,7 @@ class TestAriseIEventHandlerTrigger:
 
     def test_dry_run_passed_to_organizer(self, tmp_path):
         """When dry_run=True, organize_folder is called with dry_run=True."""
-        with patch("file_watcher.organize_folder", return_value=MagicMock()) as mock_org:
+        with patch("arise_i.core.watcher.organize_folder", return_value=MagicMock()) as mock_org:
             handler = AriseIEventHandler(
                 target_dir=tmp_path,
                 debounce=0.05,
@@ -264,7 +264,7 @@ class TestAriseIEventHandlerTrigger:
     def test_custom_categories_passed_to_organizer(self, tmp_path):
         """Custom categories dict is forwarded to organize_folder."""
         custom = {"Stuff": [".xyz"]}
-        with patch("file_watcher.organize_folder", return_value=MagicMock()) as mock_org:
+        with patch("arise_i.core.watcher.organize_folder", return_value=MagicMock()) as mock_org:
             handler = AriseIEventHandler(
                 target_dir=tmp_path,
                 debounce=0.05,

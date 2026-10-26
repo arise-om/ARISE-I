@@ -1,14 +1,14 @@
 """
 tests/test_assignment_classifier.py
 ------------------------------------
-Tests for the assignment_classifier module: filename pattern parsing,
+Tests for the arise_i.core.assignment module: filename pattern parsing,
 metadata extraction, and edge-case handling.
 """
 
 import pytest
 from pathlib import Path
 
-from assignment_classifier import AssignmentInfo, parse_assignment
+from arise_i.core.assignment import AssignmentInfo, parse_assignment
 
 
 # ── Unit tests for parse_assignment ──────────────────────────────────────────
@@ -182,7 +182,7 @@ class TestOrganizeAssignmentsIntegration:
     """Integration tests verifying end-to-end folder structuring and undo."""
 
     def test_assignments_nested_folders(self, tmp_path):
-        from file_organizer import organize_folder
+        from arise_i.core.organizer import organize_folder
 
         (tmp_path / "Assignment 1 - Calculus.pdf").write_text("calc 1")
         (tmp_path / "Assignment 2 - Calculus.docx").write_text("calc 2")
@@ -208,7 +208,7 @@ class TestOrganizeAssignmentsIntegration:
         assert (tmp_path / "PDFs" / "regular_report.pdf").exists()
 
     def test_assignments_undo(self, tmp_path):
-        from file_organizer import organize_folder, undo_last_run
+        from arise_i.core.organizer import organize_folder, undo_last_run
 
         test_file = tmp_path / "Assignment 1 - Calculus.pdf"
         test_file.write_text("calc 1 content")

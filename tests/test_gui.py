@@ -8,18 +8,18 @@ These tests do NOT open a real window — they test:
   2. log_callback receives one call per file processed
   3. log_callback receives simulation messages in dry-run mode
   4. log_callback receives error messages on broken symlinks
-  5. undo_last_run output (captured via redirect_stdout)
-  6. gui.py imports cleanly (tkinter mocked so no display required)
+  5. arise_i.gui.app imports cleanly (tkinter mocked so no display required)
 
 All tests run fine in CI without a display server.
 """
 
+import importlib
 import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from file_organizer import organize_folder
+from arise_i.core.organizer import organize_folder
 import logging
 
 
@@ -144,48 +144,47 @@ class TestLogCallback:
 
 
 # ---------------------------------------------------------------------------
-# gui.py import test (tkinter mocked)
+# GUI import test (tkinter mocked)
 # ---------------------------------------------------------------------------
 
+def _purge_gui_modules() -> None:
+    """Forget every arise_i.gui submodule so the next import re-executes it."""
+    import arise_i.gui as gui_pkg
+    for name in [m for m in sys.modules if m.startswith("arise_i.gui.")]:
+        sys.modules.pop(name, None)
+        if hasattr(gui_pkg, name.rsplit(".", 1)[1]):
+            delattr(gui_pkg, name.rsplit(".", 1)[1])
+
+
 class TestGuiImport:
-    """Verify gui.py is importable without a live display server."""
+    """Verify the GUI module is importable without a live display server."""
 
     def test_gui_module_imports_with_mocked_tkinter(self):
-        """Stub tkinter so gui.py loads cleanly in headless CI."""
-        # Build a minimal tkinter mock
+        """Stub tkinter so the GUI loads cleanly in headless CI."""
         tk_mock = MagicMock()
-        tk_mock.Tk         = MagicMock(return_value=MagicMock())
-        tk_mock.StringVar  = MagicMock(return_value=MagicMock())
-        tk_mock.BooleanVar = MagicMock(return_value=MagicMock())
-        tk_mock.DoubleVar  = MagicMock(return_value=MagicMock())
-        ttk_mock  = MagicMock()
-        fd_mock   = MagicMock()
-        font_mock = MagicMock()
-        mb_mock   = MagicMock()
-        st_mock   = MagicMock()
-
         fake_modules = {
-            "tkinter":                  tk_mock,
-            "tkinter.ttk":              ttk_mock,
-            "tkinter.filedialog":       fd_mock,
-            "tkinter.font":             font_mock,
-            "tkinter.messagebox":       mb_mock,
-            "tkinter.scrolledtext":     st_mock,
+            "tkinter":            tk_mock,
+            "tkinter.ttk":        MagicMock(),
+            "tkinter.filedialog": MagicMock(),
+            "tkinter.messagebox": MagicMock(),
         }
 
-        with patch.dict(sys.modules, fake_modules):
-            # Remove cached module if a previous test loaded it
-            sys.modules.pop("gui", None)
-            import gui  # should not raise
-            assert hasattr(gui, "main")
-            assert hasattr(gui, "AriseIApp")
-            sys.modules.pop("gui", None)
+        _purge_gui_modules()
+        try:
+            with patch.dict(sys.modules, fake_modules):
+                gui = importlib.import_module("arise_i.gui.app")  # should not raise
+                assert hasattr(gui, "main")
+                assert hasattr(gui, "AriseIApp")
+        finally:
+            _purge_gui_modules()
 
     def test_gui_exits_gracefully_without_tkinter(self, monkeypatch):
-        """If tkinter truly isn't available, gui.py should sys.exit(1)."""
+        """If tkinter truly isn't available, the GUI should sys.exit(1)."""
         monkeypatch.setitem(sys.modules, "tkinter", None)
-        sys.modules.pop("gui", None)
-        with pytest.raises(SystemExit) as exc_info:
-            import gui  # noqa: F401
-        assert exc_info.value.code == 1
-        sys.modules.pop("gui", None)
+        _purge_gui_modules()
+        try:
+            with pytest.raises(SystemExit) as exc_info:
+                importlib.import_module("arise_i.gui.app")
+            assert exc_info.value.code == 1
+        finally:
+            _purge_gui_modules()

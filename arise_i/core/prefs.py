@@ -20,10 +20,12 @@ import logging
 import os
 from pathlib import Path
 
+from arise_i.constants import APP_DIR
+
 logger = logging.getLogger("arise_i.prefs")
 
 # ~/.arise-i/prefs.json
-PREFS_DIR: Path  = Path.home() / ".arise-i"
+PREFS_DIR: Path  = APP_DIR
 PREFS_FILE: Path = PREFS_DIR / "prefs.json"
 
 _DEFAULTS: dict = {

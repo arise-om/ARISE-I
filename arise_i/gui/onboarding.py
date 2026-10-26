@@ -16,8 +16,8 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog
 
-from prefs import get_pref, save_prefs, load_prefs
-from ui_theme import THEMES, Animator, font as _font
+from arise_i.core.prefs import get_pref, save_prefs, load_prefs
+from arise_i.gui.theme import THEMES, Animator, font as _font
 
 
 # ---------------------------------------------------------------------------

@@ -27,18 +27,19 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+from arise_i.constants import APP_DIR, LOG_MANIFEST, REVIEW_FOLDER
+
 logger = logging.getLogger("arise_i.health")
 
 # ── Tunables ─────────────────────────────────────────────────────────────────
 CHECK_INTERVAL_S      = 60          # seconds between health scans
 DISK_WARN_BYTES       = 500 * 1024 * 1024   # 500 MB
-ORPHAN_MAX_DAYS       = 7           # days before Review files are re-classified
+ORPHAN_MAX_DAYS       = 7           # days before Review files are flagged as stale
 DRIFT_WARN_RATE       = 0.30        # correction rate above which to warn
-HEALTH_FILE           = Path.home() / ".arise-i" / "health.json"
+HEALTH_FILE           = APP_DIR / "health.json"
 
-# ── Sentinel messages understood by gui.py log parser ────────────────────────
+# ── Sentinel messages understood by the GUI log parser ────────────────────────
 MSG_HEALTH_WARN   = "__HEALTH_WARN__"
-MSG_HEALTH_OK     = "__HEALTH_OK__"
 MSG_HEALTH_RETRAIN = "__HEALTH_RETRAIN__"
 
 
@@ -138,14 +139,12 @@ class HealthMonitor:
 
     def _check_manifest(self) -> dict:
         """Validate all known ARISE-I manifests are readable JSON."""
-        arise_dir = Path.home() / ".arise-i"
         issues: list[str] = []
 
-        manifest_name = ".arise-i-log.json"
-        candidates = list(arise_dir.glob("**/" + manifest_name)) if arise_dir.exists() else []
-        # Also check target dir manifest
-        if self._target_dir and (self._target_dir / manifest_name).exists():
-            candidates.append(self._target_dir / manifest_name)
+        # Manifests live in each organised folder, next to the sorted files.
+        candidates: list[Path] = []
+        if self._target_dir and (self._target_dir / LOG_MANIFEST).exists():
+            candidates.append(self._target_dir / LOG_MANIFEST)
 
         for mf in candidates:
             try:
@@ -191,7 +190,7 @@ class HealthMonitor:
         if self._target_dir is None:
             return {"ok": True, "waiting": 0}
 
-        review_dir = self._target_dir / "__Review__"
+        review_dir = self._target_dir / REVIEW_FOLDER
         if not review_dir.exists():
             return {"ok": True, "waiting": 0}
 

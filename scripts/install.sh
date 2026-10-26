@@ -67,7 +67,7 @@ if [[ "$OS" == "macos" ]]; then
 else
     INSTALL_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/arise-i"
 fi
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_DIR="$INSTALL_ROOT/venv"
 
 echo "🔧 Installing ARISE-I in $INSTALL_ROOT..."
@@ -77,7 +77,7 @@ if ! python3 -m venv "$VENV_DIR"; then
     exit 1
 fi
 "$VENV_DIR/bin/python" -m pip install --upgrade pip -q
-"$VENV_DIR/bin/python" -m pip install "$SCRIPT_DIR" -q
+"$VENV_DIR/bin/python" -m pip install "$PROJECT_DIR" -q
 
 echo "✅ ARISE-I installed"
 echo ""

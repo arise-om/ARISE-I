@@ -2,7 +2,7 @@
 ARISE-I — Look & Feel
 ---------------------
 Shared palettes, fonts, colour maths and a tiny animation engine used by
-the main window (gui.py) and the first-run wizard (onboarding.py).
+the main window (app.py) and the first-run wizard (onboarding.py).
 
 Everything here is plain tkinter — no extra dependencies.
 """

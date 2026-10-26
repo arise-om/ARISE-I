@@ -3,9 +3,9 @@ tests/conftest.py
 -----------------
 Shared pytest configuration for the ARISE-I test suite.
 
-Ensures the project root is on sys.path so that imports like
-``from file_organizer import ...`` work regardless of how pytest is invoked
-(from the project root, from the tests/ subdirectory, or in CI).
+Ensures the project root is on sys.path so that ``import arise_i`` works
+even without ``pip install -e .`` (from the project root, from the tests/
+subdirectory, or in CI).
 
 It also points the home directory at a throwaway folder *before* any
 ARISE-I module is imported, so the suite never reads or writes the real

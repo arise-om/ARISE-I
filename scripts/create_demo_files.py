@@ -105,7 +105,7 @@ def create_demo_sandbox(output_dir: str) -> Path:
     print(f"[OK]  Demo sandbox ready: {out}")
     print(f"      {created} files created  |  {symlink_note}  |  1 empty subfolder")
     print("\nNext step:")
-    print(f"   python file_organizer.py --dry-run --path \"{out}\"")
+    print(f"   arise-i --dry-run --path \"{out}\"")
     return out
 
 

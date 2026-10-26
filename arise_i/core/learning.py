@@ -24,6 +24,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
+from arise_i.constants import APP_DIR, REVIEW_FOLDER
+
 logger = logging.getLogger("arise_i.learning")
 
 # ── Optional: sklearn ─────────────────────────────────────────────────────────
@@ -38,7 +40,7 @@ except ImportError:
     _SKLEARN_AVAILABLE = False
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-_ARISE_DIR      = Path.home() / ".arise-i"
+_ARISE_DIR      = APP_DIR
 FEEDBACK_FILE   = _ARISE_DIR / "feedback.jsonl"
 MODEL_FILE      = _ARISE_DIR / "model.pkl"
 MODEL_META_FILE = _ARISE_DIR / "model_meta.json"
@@ -49,7 +51,7 @@ MIN_CLASS_SAMPLES = 2     # minimum samples per class for NB to be valid
 
 # Labels that are never ground truth.  Versions before 2.1 logged files sent
 # to the Review quarantine as confirmed "__Review__" — those rows are ignored.
-_NON_LABELS = {"__Review__"}
+_NON_LABELS = {REVIEW_FOLDER}
 
 # Serialises feedback appends and model writes across the GUI worker, the
 # watcher and the health monitor's retrain thread.
@@ -109,7 +111,7 @@ class LearningStore:
         confidence: model confidence at classification time
         layer     : classifier layer that made the decision
         """
-        from classifier import _extract_text_features  # avoid circular at module level
+        from arise_i.core.classifier import _extract_text_features  # avoid circular at module level
 
         event: dict = {
             "ts":         datetime.now().isoformat(timespec="seconds"),

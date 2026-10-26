@@ -17,13 +17,13 @@ from pathlib import Path
 
 import pytest
 
-from plugin_loader import (
+from arise_i.core.plugins import (
     PLUGIN_DIR,
     _load_single_plugin,
     classify_with_plugins,
     load_plugins,
 )
-from file_organizer import organize_folder
+from arise_i.core.organizer import organize_folder
 
 
 # ---------------------------------------------------------------------------

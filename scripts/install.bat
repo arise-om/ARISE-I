@@ -61,7 +61,7 @@ REM 4. Install ARISE-I and dependencies
 REM ----------------------------------------
 echo [INFO] Installing ARISE-I and dependencies...
 
-pushd "%~dp0"
+pushd "%~dp0.."
 if errorlevel 1 (
     echo [ERROR] Could not open the project directory.
     pause
@@ -103,7 +103,7 @@ if not exist "%GUI_EXE%" (
     echo [WARNING] GUI launcher not found.
     echo [INFO] Reinstalling ARISE-I...
 
-    pushd "%~dp0"
+    pushd "%~dp0.."
     python -m pip install --force-reinstall .
     set "INSTALL_RESULT=%errorlevel%"
     popd
@@ -130,7 +130,7 @@ REM ----------------------------------------
 echo [INFO] Detecting the actual Windows Desktop...
 
 set "ARISE_GUI=%GUI_EXE%"
-set "ARISE_WORKDIR=%~dp0"
+set "ARISE_WORKDIR=%USERPROFILE%"
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
  "$ErrorActionPreference = 'Stop';" ^

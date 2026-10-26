@@ -8,7 +8,7 @@ import json
 import logging
 import pytest
 from pathlib import Path
-from file_organizer import organize_folder, LOG_MANIFEST
+from arise_i.core.organizer import organize_folder, LOG_MANIFEST
 
 
 @pytest.fixture(autouse=True)
