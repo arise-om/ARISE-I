@@ -53,7 +53,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -328,15 +327,16 @@ private fun ReviewCard(
 private fun Thumbnail(item: ReviewItem) {
     val file = remember(item) { File(item.folder, item.relPath) }
     val isPdf = item.name.endsWith(".pdf", ignoreCase = true)
-    val bitmap by produceState<Bitmap?>(null, file) {
-        value = withContext(Dispatchers.IO) {
+    var image by remember(file) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(file) {
+        image = withContext(Dispatchers.IO) {
             runCatching { if (isPdf) pdfPage(file) else if (item.isImage) decodeSampled(file, 160) else null }.getOrNull()
         }
     }
-    val image = bitmap
-    if (image != null) {
+    val loaded = image
+    if (loaded != null) {
         Image(
-            image.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop,
+            loaded.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop,
             modifier = Modifier.size(56.dp).clip(MaterialTheme.shapes.small),
         )
     } else {

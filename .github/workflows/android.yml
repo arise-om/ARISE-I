@@ -63,7 +63,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Lint and build
         working-directory: android
-        run: ./gradlew :app:lintDebug :app:assembleDebug :app:assembleRelease --console=plain
+        run: ./gradlew --continue :app:assembleDebug :app:assembleRelease :app:lintDebug --console=plain
       - name: APK size budget (12 MB)
         run: |
           apk=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
