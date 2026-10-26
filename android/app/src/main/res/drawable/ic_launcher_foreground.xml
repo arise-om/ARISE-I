@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- "A" -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,30 L72,76 L63.5,76 L59.6,65.5 L48.4,65.5 L44.5,76 L36,76 Z M51,58.5 L57,58.5 L54,50 Z" />
+    <!-- three tidy bars -->
+    <path
+        android:fillColor="#B3FFFFFF"
+        android:pathData="M38,80 L70,80 A2,2 0 0 1 70,84 L38,84 A2,2 0 0 1 38,80 Z" />
+</vector>

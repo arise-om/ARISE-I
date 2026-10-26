@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared by tests/test_golden.py and android/engine ClassifierParityTest. 'expect' is where a live run leaves the file, relative to the organised folder.",
+  "_comment": "Shared by tests/test_golden.py and android/engine ClassifierParityTest. 'expect' is where a live run leaves the file, relative to the organised folder. Names must be legal on Windows too (no trailing dots), since the Python suite runs there.",
   "preexisting": [
     "PDFs/dup.pdf"
   ],
@@ -63,10 +63,6 @@
     {
       "name": "data.unknownext",
       "expect": "__Review__/data.unknownext"
-    },
-    {
-      "name": "backup.",
-      "expect": "__Review__/backup."
     },
     {
       "name": "Assignment 1 - Calculus.pdf",

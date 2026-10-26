@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ARISE-I</string>
+    <string name="tile_label">Auto-sort</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_review">Review</string>
+    <string name="nav_history">History</string>
+    <string name="nav_settings">Settings</string>
+    <string name="badge_overflow">99+</string>
+
+    <!-- Onboarding -->
+    <string name="onb_welcome_title">Your files, sorted — right on your phone</string>
+    <string name="onb_welcome_body">ARISE-I sorts your downloads into tidy folders and learns from every choice you make. Nothing leaves your device.</string>
+    <string name="onb_feature_ai">Smart sorting that shows how sure it is</string>
+    <string name="onb_feature_review">Unsure files wait for you — nothing is misfiled</string>
+    <string name="onb_feature_undo">Undo any move, any time</string>
+    <string name="onb_feature_local" formatted="false">100 % on-device. No account, no cloud</string>
+    <string name="onb_access_title">Let ARISE-I tidy your files</string>
+    <string name="onb_access_body">To move files into folders, Android needs you to allow All files access. ARISE-I never uploads, shares or deletes anything.</string>
+    <string name="onb_access_granted">Access granted — you\'re all set</string>
+    <string name="onb_folder_title">Pick a folder to tidy</string>
+    <string name="onb_folder_body">Downloads is a great place to start. You can add more folders any time.</string>
+    <string name="onb_lets_go">Show me the plan</string>
+    <string name="action_continue">Continue</string>
+    <string name="action_open_settings">Open settings</string>
+    <string name="action_not_now">Not now</string>
+    <string name="action_skip">Skip</string>
+
+    <!-- Permission -->
+    <string name="perm_denied_title">ARISE-I can\'t reach your files yet</string>
+    <string name="perm_denied_body">Allow All files access to start sorting. Auto-sort is paused until then.</string>
+    <string name="action_allow_access">Allow access</string>
+
+    <!-- Home -->
+    <string name="home_title">ARISE-I</string>
+    <string name="home_subtitle" formatted="false">AI file organizer · 100 % local</string>
+    <string name="folder_add">Add folder</string>
+    <string name="folder_hint_tidy">Nothing to sort — this folder is tidy</string>
+    <string name="folder_hint_protected">Protected folder — pick a subfolder</string>
+    <string name="folder_hint_missing">Can\'t find this folder</string>
+    <plurals name="folder_hint_loose">
+        <item quantity="one">%d loose file ready to sort</item>
+        <item quantity="other">%d loose files ready to sort</item>
+    </plurals>
+    <string name="autosort_label">Auto-sort</string>
+    <string name="autosort_off">Off</string>
+    <string name="autosort_periodic">Every 15 minutes</string>
+    <string name="autosort_live">Instantly</string>
+    <string name="autosort_watching">Watching %1$s · %2$s</string>
+    <string name="action_organize">Organize…</string>
+    <string name="last_run">Last run</string>
+    <string name="kpi_moved">Moved</string>
+    <string name="kpi_review">To review</string>
+    <string name="kpi_failed">Failed</string>
+    <string name="kpi_space">Space tidied</string>
+    <string name="recent_activity">Recent activity</string>
+    <string name="see_all">See all</string>
+    <string name="recovered_title">We tidied up an interrupted run</string>
+    <plurals name="recovered_body">
+        <item quantity="one">%d file was put back safely. Nothing was lost.</item>
+        <item quantity="other">%d files were put back safely. Nothing was lost.</item>
+    </plurals>
+    <string name="action_dismiss">Dismiss</string>
+    <string name="home_empty_title">No runs yet</string>
+    <string name="home_empty_body">Tap Organize to see exactly what ARISE-I would do — nothing moves until you say so.</string>
+
+    <!-- Plan -->
+    <string name="plan_title">Plan</string>
+    <string name="plan_scanning">Looking through %s…</string>
+    <string name="plan_going_to_review">Going to Review</string>
+    <string name="plan_review_note">ARISE-I isn\'t sure about these — they wait in Review so nothing is misfiled.</string>
+    <string name="plan_skipped">Left alone</string>
+    <plurals name="plan_summary">
+        <item quantity="one">%1$d file → %2$s</item>
+        <item quantity="other">%1$d files → %2$s</item>
+    </plurals>
+    <plurals name="plan_folders">
+        <item quantity="one">%d folder</item>
+        <item quantity="other">%d folders</item>
+    </plurals>
+    <plurals name="plan_organize">
+        <item quantity="one">Organize %d file</item>
+        <item quantity="other">Organize %d files</item>
+    </plurals>
+    <string name="plan_footer">Nothing is deleted. You can undo afterwards.</string>
+    <string name="plan_progress">%1$d of %2$d</string>
+    <string name="action_stop">Stop</string>
+    <string name="plan_empty_title">Everything\'s in its place</string>
+    <string name="plan_empty_body">There are no loose files in this folder.</string>
+    <string name="action_check_again">Check again</string>
+    <string name="plan_choose_folder">Move to…</string>
+    <string name="plan_new_folder">New folder</string>
+    <string name="plan_search_folders">Search folders</string>
+    <string name="plan_include">Include %s</string>
+    <string name="action_create">Create</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="row_description">%1$s, moves to %2$s, %3$s confidence, %4$d percent</string>
+    <string name="skip_hidden">hidden</string>
+    <string name="skip_system">system file</string>
+    <string name="skip_lock">open document</string>
+    <string name="skip_partial">still downloading</string>
+
+    <!-- Results -->
+    <plurals name="snack_sorted">
+        <item quantity="one">Sorted %d file</item>
+        <item quantity="other">Sorted %d files</item>
+    </plurals>
+    <string name="snack_moved_to">Moved %1$s to %2$s</string>
+    <string name="snack_undone">Undo complete — files are back</string>
+    <string name="snack_snoozed">Not now — we\'ll ask again in a week</string>
+    <string name="snack_failed">Couldn\'t move %d files. They may be open in another app or storage is full. Close them and try again.</string>
+    <string name="snack_no_space">Storage is full. Sorting stopped — files already moved can be undone.</string>
+    <string name="action_undo">Undo</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_review">Review</string>
+
+    <!-- Review -->
+    <string name="review_title">Review</string>
+    <string name="review_hint">Pick a folder — ARISE-I learns from every choice.</string>
+    <string name="review_empty_title">All clear</string>
+    <string name="review_empty_body">Nothing to review. Anything ARISE-I isn\'t sure about lands here.</string>
+    <string name="review_best_guesses">Best guesses</string>
+    <string name="review_more_folders">More folders…</string>
+    <plurals name="review_waiting">
+        <item quantity="one">Waiting %d day</item>
+        <item quantity="other">Waiting %d days</item>
+    </plurals>
+    <plurals name="review_selected">
+        <item quantity="one">%d selected</item>
+        <item quantity="other">%d selected</item>
+    </plurals>
+    <string name="review_accept_all">Accept suggestions</string>
+    <string name="review_move_all">Move all to…</string>
+    <string name="review_swipe_accept">Accept %s</string>
+    <string name="review_swipe_snooze">Not now</string>
+    <string name="review_choose">Choose folder</string>
+    <string name="action_select">Select</string>
+    <string name="action_clear_selection">Clear selection</string>
+
+    <!-- History -->
+    <string name="history_title">History</string>
+    <string name="history_empty_title">No history yet</string>
+    <string name="history_empty_body">Your sorting history shows up here — with undo for every move.</string>
+    <string name="kind_manual">Organize</string>
+    <string name="kind_auto">Auto-sort</string>
+    <string name="kind_review">Review choice</string>
+    <string name="kind_undo">Undo</string>
+    <string name="status_done">Done</string>
+    <string name="status_partly_undone">Partly undone</string>
+    <string name="status_undone">Undone</string>
+    <string name="status_interrupted">Interrupted</string>
+    <string name="status_stopped">Stopped</string>
+    <plurals name="status_failed">
+        <item quantity="one">%d failed</item>
+        <item quantity="other">%d failed</item>
+    </plurals>
+    <plurals name="file_count">
+        <item quantity="one">%d file</item>
+        <item quantity="other">%d files</item>
+    </plurals>
+    <string name="today">Today</string>
+    <string name="yesterday">Yesterday</string>
+    <string name="run_detail_title">Run details</string>
+    <string name="action_undo_run">Undo whole run</string>
+    <string name="undo_run_confirm_title">Put %d files back where they were?</string>
+    <string name="undo_run_confirm_body">Files are restored to their original names. If a new file took a name, the restored one gets a number.</string>
+    <string name="action_put_back">Put files back</string>
+    <string name="action_keep">Keep as is</string>
+    <string name="folder_moved_title">Folder moved?</string>
+    <string name="folder_moved_body">ARISE-I can\'t find %s. Locate it to undo these moves.</string>
+    <string name="action_locate">Locate it</string>
+    <string name="state_moved">Moved</string>
+    <string name="state_undone">Put back</string>
+    <string name="state_failed">Failed</string>
+    <string name="state_skipped">Skipped</string>
+    <string name="state_pending">Pending</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_folders">Folders</string>
+    <string name="settings_threshold">Confidence needed to sort</string>
+    <string name="settings_threshold_preview">At %1$d %%, %2$d of your last %3$d files would go to Review</string>
+    <string name="settings_remove_folder">Remove folder</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="settings_dynamic_color">Dynamic colour</string>
+    <string name="settings_dynamic_color_body">Use your wallpaper colours. Confidence colours stay the same.</string>
+    <string name="settings_reduce_motion">Reduce motion</string>
+    <string name="settings_reduce_motion_body">Skip animations and count-ups</string>
+    <string name="settings_intelligence">Intelligence</string>
+    <string name="settings_learning_stats">%1$d choices learned · %2$d %% corrections</string>
+    <string name="settings_model_trained">Model trained on %1$d files</string>
+    <string name="settings_model_untrained">Learns after %d choices</string>
+    <string name="action_retrain">Retrain now</string>
+    <string name="action_reset_learning">Reset learning</string>
+    <string name="reset_confirm_title">Forget everything ARISE-I learned?</string>
+    <string name="reset_confirm_body">Your files stay where they are. Sorting goes back to the built-in rules.</string>
+    <string name="action_reset">Reset</string>
+    <string name="retrained">Model retrained</string>
+    <string name="retrain_not_enough">Not enough choices to learn from yet</string>
+    <string name="settings_categories">Categories</string>
+    <string name="settings_categories_custom">Using arise-i.config.yaml in this folder</string>
+    <string name="settings_categories_default">Built-in categories</string>
+    <string name="settings_about">About</string>
+    <string name="settings_version">Version %s · 100 %% local · Ironlabs.tech</string>
+
+    <!-- Auto-sort sheet -->
+    <string name="autosort_sheet_title">How should auto-sort work?</string>
+    <string name="autosort_sheet_periodic_body">Easy on battery</string>
+    <string name="autosort_sheet_live_body">Shows a small ongoing notification</string>
+    <string name="autosort_sheet_note">Unsure files go to Review — ARISE-I never guesses.</string>
+
+    <!-- Notifications -->
+    <string name="channel_results">Sort results</string>
+    <string name="channel_watching">Auto-sort running</string>
+    <string name="channel_health">Health</string>
+    <string name="notif_sorted_title">ARISE-I</string>
+    <plurals name="notif_sorted">
+        <item quantity="one">Sorted %d new file</item>
+        <item quantity="other">Sorted %d new files</item>
+    </plurals>
+    <plurals name="notif_need_review">
+        <item quantity="one">%d needs a quick look</item>
+        <item quantity="other">%d need a quick look</item>
+    </plurals>
+    <string name="notif_watching">Watching %s — sorts new files as they land</string>
+    <string name="action_pause">Pause</string>
+    <plurals name="notif_stale_review">
+        <item quantity="one">%d file has waited in Review for over a week</item>
+        <item quantity="other">%d files have waited in Review for over a week</item>
+    </plurals>
+    <string name="notif_low_space">Less than 500 MB free — sorting continues, but copies may fail</string>
+    <string name="notif_folder_missing">Can\'t find %s. Locate it or remove it in Settings.</string>
+    <string name="notif_access_revoked">All files access was turned off. Auto-sort is paused.</string>
+    <string name="tile_subtitle_on">Watching %d folders</string>
+    <string name="tile_subtitle_off">Off</string>
+</resources>

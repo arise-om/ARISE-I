@@ -63,8 +63,8 @@ class FolderNotFoundException(val folder: File) : IOException("Folder not found:
 
 /**
  * Plans, executes and undoes runs through the [MoveJournal].  Every public
- * operation holds a per-folder lock, so manual runs, auto-sort and undo
- * never interleave on one folder.
+ * operation holds a per-folder lock (process-wide, shared by all instances),
+ * so manual runs, auto-sort and undo never interleave on one folder.
  */
 class Organizer(
     private val rules: Rules,
@@ -76,7 +76,6 @@ class Organizer(
     private val sleeper: (Long) -> Unit = Thread::sleep,
 ) {
     private val skipRules = SkipRules(rules)
-    private val locks = ConcurrentHashMap<String, ReentrantLock>()
 
     private fun <T> locked(root: File, block: () -> T): T =
         locks.computeIfAbsent(root.absolutePath) { ReentrantLock() }.withLock(block)
@@ -338,6 +337,7 @@ class Organizer(
     }
 
     companion object {
+        private val locks = ConcurrentHashMap<String, ReentrantLock>()
         val RETRY_DELAYS_MS = longArrayOf(0, 200, 800, 2000)
         const val NO_SPACE = "No space left"
     }
