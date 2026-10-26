@@ -42,6 +42,16 @@ def _file_event(src_path: str, is_directory: bool = False, dest_path: str | None
     return ev
 
 
+def _wait_for(predicate, timeout: float = 5.0, interval: float = 0.01) -> bool:
+    """Poll *predicate* until it returns truthy or *timeout* seconds pass."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval)
+    return bool(predicate())
+
+
 # ---------------------------------------------------------------------------
 # _DebounceTimer tests
 # ---------------------------------------------------------------------------
@@ -89,11 +99,13 @@ class TestDebounceTimer:
         def cb():
             call_count["n"] += 1
 
-        timer = _DebounceTimer(delay=0.1, callback=cb)
+        # Triggers are sent back-to-back against a wide window so a runner
+        # that oversleeps can't split the burst into two quiet periods.
+        timer = _DebounceTimer(delay=0.5, callback=cb)
         for _ in range(10):
             timer.trigger()
-            time.sleep(0.01)
-        time.sleep(0.3)
+        assert _wait_for(lambda: call_count["n"] >= 1), "callback never fired"
+        time.sleep(0.6)  # longer than the window: any stray second fire lands
         assert call_count["n"] == 1
 
 
@@ -217,25 +229,33 @@ class TestAriseIEventHandlerTrigger:
         time.sleep(0.3)
         mock_org.assert_not_called()
 
-    def test_rapid_events_trigger_organizer_once(self, handler_and_mock):
+    def test_rapid_events_trigger_organizer_once(self, tmp_path):
         """Ten rapid events in the debounce window → exactly one sort run."""
-        handler, mock_org, tmp_path = handler_and_mock
-        for i in range(10):
-            ev = _file_event(str(tmp_path / f"file_{i}.jpg"))
-            handler.on_created(ev)
-            time.sleep(0.01)
-        time.sleep(0.3)
-        mock_org.assert_called_once()
+        # Own handler with a wide window, events sent back-to-back: the 50 ms
+        # fixture window plus per-event sleeps flaked when a runner overslept.
+        with patch("file_watcher.organize_folder", return_value=MagicMock()) as mock_org:
+            handler = AriseIEventHandler(target_dir=tmp_path, debounce=0.5)
+            try:
+                for i in range(10):
+                    handler.on_created(_file_event(str(tmp_path / f"file_{i}.jpg")))
+                assert _wait_for(lambda: mock_org.call_count >= 1), "organizer never ran"
+                time.sleep(0.6)  # longer than the window: any stray second sort lands
+                mock_org.assert_called_once()
+            finally:
+                handler._timer.cancel()
 
     def test_two_separate_bursts_trigger_organizer_twice(self, handler_and_mock):
         """Events separated by more than the debounce window → two sorts."""
         handler, mock_org, tmp_path = handler_and_mock
-        # First burst
+        # First burst — wait for its sort before starting the second, so the
+        # bursts are separated by construction rather than by sleep timing.
         handler.on_created(_file_event(str(tmp_path / "a.jpg")))
-        time.sleep(0.2)   # past 0.05s debounce
+        assert _wait_for(lambda: mock_org.call_count >= 1), "first sort never ran"
+        assert mock_org.call_count == 1
         # Second burst
         handler.on_created(_file_event(str(tmp_path / "b.pdf")))
-        time.sleep(0.2)   # past debounce again
+        assert _wait_for(lambda: mock_org.call_count >= 2), "second sort never ran"
+        time.sleep(0.2)   # past the 0.05s debounce: any stray extra sort lands
         assert mock_org.call_count == 2
 
     def test_organizer_called_with_correct_path(self, handler_and_mock):
