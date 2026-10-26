@@ -17,7 +17,8 @@ from pathlib import Path
 from tkinter import filedialog
 
 from arise_i.core.prefs import get_pref, save_prefs, load_prefs
-from arise_i.gui.theme import THEMES, Animator, font as _font
+from arise_i.gui.theme import ON_ACCENT, THEMES, Animator, mix, scaled, to_hex
+from arise_i.gui.theme import font as _font
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +55,8 @@ class OnboardingWizard(tk.Toplevel):
         self._anim = Animator(self, enabled=lambda: bool(get_pref("animations", True)))
 
         self.title("Welcome to ARISE-I")
-        self.resizable(False, False)
+        self.resizable(True, False)
+        self._width = scaled(self, 600)
         self.configure(bg=self._p["BG"])
 
         self.transient(parent)
@@ -69,7 +71,8 @@ class OnboardingWizard(tk.Toplevel):
         self._folder_var.trace_add("write", lambda *_: self._validate())
         self._validate()
         self.update_idletasks()
-        self._center_on(parent, 600, self.winfo_reqheight())
+        self.minsize(self._width, self.winfo_reqheight())
+        self._center_on(parent, self._width, self.winfo_reqheight())
         self._fade_in()
         self._make_modal()
 
@@ -99,13 +102,24 @@ class OnboardingWizard(tk.Toplevel):
             except tk.TclError: pass
         _alpha(0.0)
         self._anim.run("alpha", 320, _alpha)
-        # Let the hero title glide up into place
-        self._anim.run("hero", 520, lambda t: self._hero_title.pack_configure(
-            pady=(int(44 - 12 * t), 4)))
+        # Let the hero title glide up into place.  The space it gives up is
+        # handed to the subtitle's bottom padding, so the hero keeps the
+        # height the window was sized for and nothing is clipped.
+        def _glide(t):
+            shift = int(12 * t)
+            self._hero_title.pack_configure(pady=(44 - shift, 4))
+            self._hero_sub.pack_configure(pady=(0, 26 + shift))
+        self._anim.run("hero", 520, _glide)
 
     def _hover(self, widget: tk.Misc, base: str, hover: str) -> None:
-        widget.bind("<Enter>", lambda e: widget.configure(bg=self._p[hover]), add="+")
-        widget.bind("<Leave>", lambda e: widget.configure(bg=self._p[base]), add="+")
+        """Fade *widget*'s background between two palette keys on mouse over."""
+        def _fade(target_key: str):
+            start = to_hex(widget, str(widget.cget("bg")))
+            end = self._p[target_key]
+            self._anim.run(f"hover{widget}", 140,
+                           lambda t: widget.configure(bg=mix(start, end, t)))
+        widget.bind("<Enter>", lambda e: _fade(hover), add="+")
+        widget.bind("<Leave>", lambda e: _fade(base), add="+")
 
     # ------------------------------------------------------------------ #
     # Build UI                                                             #
@@ -114,19 +128,20 @@ class OnboardingWizard(tk.Toplevel):
     def _build(self) -> None:
         P = self._p
         # ── Hero section ──────────────────────────────────────────────
-        hero = tk.Frame(self, bg=P["ACCENT"])
+        hero = tk.Frame(self, bg=P["ACCENT_FILL"])
         hero.pack(fill="x")
 
         self._hero_title = tk.Label(
             hero, text="ARISE-I",
-            font=_font(34, "bold"), fg="white", bg=P["ACCENT"],
+            font=_font(34, "bold"), fg=ON_ACCENT, bg=P["ACCENT_FILL"],
         )
-        self._hero_title.pack(pady=(32, 4))
+        self._hero_title.pack(pady=(44, 4))
 
-        tk.Label(
+        self._hero_sub = tk.Label(
             hero, text="Your personal, AI-powered file organizer",
-            font=_font(12), fg="white", bg=P["ACCENT"], padx=20,
-        ).pack(pady=(0, 26))
+            font=_font(12), fg=ON_ACCENT, bg=P["ACCENT_FILL"], padx=20,
+        )
+        self._hero_sub.pack(pady=(0, 26))
 
         # ── Feature cards ─────────────────────────────────────────────
         cards_frame = tk.Frame(self, bg=P["BG"], padx=32)
@@ -146,7 +161,7 @@ class OnboardingWizard(tk.Toplevel):
             tk.Label(row, text=title, font=_font(11, "bold"), fg=P["FG"],
                      bg=P["SURFACE"]).pack(side="left")
             tk.Label(card, text=desc, font=_font(9), fg=P["FG_DIM"], bg=P["SURFACE"],
-                     wraplength=220, justify="left").pack(anchor="w", pady=(4, 0))
+                     wraplength=scaled(self, 220), justify="left").pack(anchor="w", pady=(4, 0))
 
         # ── Folder picker ─────────────────────────────────────────────
         picker_frame = tk.Frame(self, bg=P["BG"], padx=32, pady=8)
@@ -178,6 +193,7 @@ class OnboardingWizard(tk.Toplevel):
             activebackground=P["HOVER"], activeforeground=P["ACCENT_D"],
             relief="flat", bd=0, padx=12, pady=4,
             cursor="hand2", command=self._browse,
+            highlightthickness=1, highlightbackground=P["SURFACE"], highlightcolor=P["ACCENT"],
         )
         browse.pack(side="right", padx=4)
         self._hover(browse, "SURFACE", "HOVER")
@@ -193,13 +209,14 @@ class OnboardingWizard(tk.Toplevel):
         cta = tk.Button(
             cta_frame,
             text="Let's Go  →",
-            font=_font(12, "bold"), fg="white", bg=P["ACCENT"],
-            activebackground=P["ACCENT_D"], activeforeground="white",
+            font=_font(12, "bold"), fg=ON_ACCENT, bg=P["ACCENT_FILL"],
+            activebackground=P["ACCENT_D"], activeforeground=ON_ACCENT,
             relief="flat", bd=0, padx=40, pady=11,
             cursor="hand2", command=self._complete,
+            highlightthickness=2, highlightbackground=P["ACCENT_FILL"], highlightcolor=P["FG"],
         )
         cta.pack(fill="x")
-        self._hover(cta, "ACCENT", "ACCENT_D")
+        self._hover(cta, "ACCENT_FILL", "ACCENT_D")
 
         foot = tk.Frame(cta_frame, bg=P["BG"])
         foot.pack(fill="x", pady=(8, 0))

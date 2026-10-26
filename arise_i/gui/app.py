@@ -41,7 +41,8 @@ from arise_i.core.prefs import load_prefs, save_prefs, set_pref
 from arise_i.gui import onboarding
 from arise_i.gui.theme import RECOLOR_KEYS as _RECOLOR_KEYS
 from arise_i.gui.theme import THEMES as _THEMES
-from arise_i.gui.theme import Animator, ToggleSwitch, ease_in_out, mix, to_hex
+from arise_i.gui.theme import ON_ACCENT, ON_ACCENT_DISABLED, Animator, ToggleSwitch
+from arise_i.gui.theme import ease_in_out, mix, scaled, to_hex
 from arise_i.gui.theme import font as _font
 
 from arise_i.core.plugins import load_plugins
@@ -135,6 +136,9 @@ class AriseIApp(tk.Tk):
         self._busy         = False
         self._closing      = False
         self._hint_token   = 0
+        self._loose_count  = 0    # from the last folder scan, for run progress
+        self._run_label    = ""
+        self._run_done     = 0
         self._hint_job     = None
         self._prog_job     = None
         self._prog_phase   = 0.0
@@ -230,9 +234,9 @@ class AriseIApp(tk.Tk):
                     if (8<=y<=24 and 12<=x<=20) or \
                        (8<=y<=24 and 8<=x<=12 and (x-8)==(y-8)) or \
                        (8<=y<=24 and 20<=x<=24 and (24-x)==(y-8)):
-                        icon.put("#007AFF",(x,y))
+                        icon.put(_THEMES["light"]["ACCENT_FILL"], (x, y))
                     else:
-                        icon.put("#ffffff",(x,y))
+                        icon.put("#ffffff", (x, y))
             self.iconphoto(True, icon)
         except Exception:
             pass
@@ -277,6 +281,9 @@ class AriseIApp(tk.Tk):
         self._tag_log_colors()
         self._style_ttk()
         self._run_theme_hooks()
+        # Combobox drop-down lists only read their colours when created
+        if self._active_tab.get() == "review":
+            self._refresh_review()
 
     def _on_theme(self, owner: tk.Misc, fn) -> None:
         """Re-run *fn* after every theme switch while *owner* exists."""
@@ -348,8 +355,8 @@ class AriseIApp(tk.Tk):
               bordercolor=[("focus", _P["ACCENT"]), ("hover", _P["FG_DIM"])])
         self.option_add("*TCombobox*Listbox.background", _P["SURFACE"])
         self.option_add("*TCombobox*Listbox.foreground", _P["FG"])
-        self.option_add("*TCombobox*Listbox.selectBackground", _P["ACCENT"])
-        self.option_add("*TCombobox*Listbox.selectForeground", "white")
+        self.option_add("*TCombobox*Listbox.selectBackground", _P["ACCENT_FILL"])
+        self.option_add("*TCombobox*Listbox.selectForeground", ON_ACCENT)
         self.option_add("*TCombobox*Listbox.font", _font(10))
 
     # ------------------------------------------------------------------ Micro-interactions
@@ -429,22 +436,27 @@ class AriseIApp(tk.Tk):
         """Primary (filled accent), secondary (outlined) or ghost (text) button."""
         if kind == "primary":
             b = tk.Button(parent, text=text, command=command, font=_font(size, "bold"),
-                          fg="white", bg=_P["ACCENT"], activebackground=_P["ACCENT_D"],
-                          activeforeground="white", disabledforeground="#dce9ff",
-                          relief="flat", bd=0, padx=padx, pady=pady, cursor="hand2")
-            self._hover(b, "ACCENT", "ACCENT_D")
+                          fg=ON_ACCENT, bg=_P["ACCENT_FILL"], activebackground=_P["ACCENT_D"],
+                          activeforeground=ON_ACCENT, disabledforeground=ON_ACCENT_DISABLED,
+                          relief="flat", bd=0, padx=padx, pady=pady, cursor="hand2",
+                          highlightthickness=2, highlightbackground=_P["ACCENT_FILL"],
+                          highlightcolor=_P["FG"])
+            self._hover(b, "ACCENT_FILL", "ACCENT_D")
         elif kind == "secondary":
             b = tk.Button(parent, text=text, command=command, font=_font(size),
                           fg=_P["FG"], bg=_P["SURFACE"], activebackground=_P["HOVER"],
                           activeforeground=_P["FG"], disabledforeground=_P["FG_DIM"],
                           relief="flat", bd=0, padx=padx, pady=pady, cursor="hand2",
-                          highlightthickness=1, highlightbackground=_P["BORDER"])
+                          highlightthickness=1, highlightbackground=_P["BORDER"],
+                          highlightcolor=_P["ACCENT"])
             self._hover(b, "SURFACE", "HOVER")
         else:
             b = tk.Button(parent, text=text, command=command, font=_font(size),
                           fg=_P["ACCENT"], bg=_P[bg_key], activebackground=_P["HOVER"],
-                          activeforeground=_P["ACCENT_D"], disabledforeground=_P["FG_DIM"],
-                          relief="flat", bd=0, padx=padx, pady=pady, cursor="hand2")
+                          activeforeground=_P["ACCENT"], disabledforeground=_P["FG_DIM"],
+                          relief="flat", bd=0, padx=padx, pady=pady, cursor="hand2",
+                          highlightthickness=1, highlightbackground=_P[bg_key],
+                          highlightcolor=_P["ACCENT"])
             self._hover(b, bg_key, "HOVER")
         return b
 
@@ -453,8 +465,15 @@ class AriseIApp(tk.Tk):
         canvas = tk.Canvas(parent, bg=_P["BG"], highlightthickness=0, bd=0)
         bar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview,
                             style="Arise.Vertical.TScrollbar")
-        canvas.configure(yscrollcommand=bar.set)
-        bar.pack(side="right", fill="y", padx=(6, 0))
+        def _set(first, last):
+            # Only show the scrollbar when there is something to scroll
+            if float(first) <= 0.0 and float(last) >= 1.0:
+                bar.pack_forget()
+            elif not bar.winfo_ismapped():
+                bar.pack(side="right", fill="y", padx=(6, 0), before=canvas)
+            bar.set(first, last)
+
+        canvas.configure(yscrollcommand=_set)
         canvas.pack(side="left", fill="both", expand=True)
         inner = tk.Frame(canvas, bg=_P["BG"])
         win = canvas.create_window((0, 0), window=inner, anchor="nw")
@@ -484,7 +503,7 @@ class AriseIApp(tk.Tk):
         tk.Label(box, text=icon, font=_font(34), fg=_P["FG_DIM"], bg=_P["BG"]).pack()
         tk.Label(box, text=title, font=_font(14, "bold"), fg=_P["FG"], bg=_P["BG"]).pack(pady=(8, 2))
         tk.Label(box, text=subtitle, font=_font(10), fg=_P["FG_DIM"], bg=_P["BG"],
-                 wraplength=420, justify="center").pack()
+                 wraplength=scaled(self, 420), justify="center").pack()
         if action:
             self._button(box, action[0], action[1], kind="primary").pack(pady=(16, 0))
 
@@ -502,7 +521,7 @@ class AriseIApp(tk.Tk):
         toast = tk.Frame(self, bg=_P["FG"], padx=14, pady=10)
         tk.Label(toast, text="●", font=_font(10), fg=_P[dot], bg=_P["FG"]).pack(side="left", padx=(0, 8))
         tk.Label(toast, text=text, font=_font(10), fg=_P["BG"], bg=_P["FG"],
-                 wraplength=380, justify="left").pack(side="left")
+                 wraplength=scaled(self, 380), justify="left").pack(side="left")
         self._toast_widget = toast
         rest, hidden = -48, 60
         toast.place(relx=1.0, rely=1.0, anchor="se", x=-20, y=hidden)
@@ -551,8 +570,27 @@ class AriseIApp(tk.Tk):
         self._menu_file = m_file
 
     def _show_shortcuts(self):
-        lines = "\n".join(f"{k:<14}{v}" for k, v in _SHORTCUTS)
-        messagebox.showinfo("Keyboard shortcuts", lines, parent=self)
+        """Small themed dialog; keys and actions line up in a real grid."""
+        win = tk.Toplevel(self, bg=_P["SURFACE"], padx=24, pady=20)
+        win.title("Keyboard shortcuts")
+        win.resizable(False, False)
+        win.transient(self)
+        tk.Label(win, text="Keyboard shortcuts", font=_font(13, "bold"), fg=_P["FG"],
+                 bg=_P["SURFACE"]).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
+        for r, (keys, action) in enumerate(_SHORTCUTS + [("F1", "Show this list")], start=1):
+            tk.Label(win, text=keys, font=_font(10, "bold"), fg=_P["FG"], bg=_P["BG"],
+                     padx=8, pady=2).grid(row=r, column=0, sticky="w", pady=3)
+            tk.Label(win, text=action, font=_font(10), fg=_P["FG_DIM"],
+                     bg=_P["SURFACE"]).grid(row=r, column=1, sticky="w", padx=(16, 0))
+        close = self._button(win, "Close", win.destroy, kind="primary", padx=18, pady=6)
+        close.grid(row=len(_SHORTCUTS) + 2, column=0, columnspan=2, sticky="e", pady=(16, 0))
+        win.bind("<Escape>", lambda e: win.destroy())
+        win.bind("<Return>", lambda e: win.destroy())
+        win.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - win.winfo_reqwidth()) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - win.winfo_reqheight()) // 3
+        win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        close.focus_set()
 
     def _show_about(self):
         messagebox.showinfo(
@@ -566,20 +604,21 @@ class AriseIApp(tk.Tk):
     def _build_ui(self):
         P = _P
         # ── Sidebar ──────────────────────────────────────────────────────────
-        side = tk.Frame(self, bg=P["SIDEBAR"], width=250)
+        side = tk.Frame(self, bg=P["SIDEBAR"], width=scaled(self, 250))
         side.pack(side="left", fill="y")
         side.pack_propagate(False)
         tk.Frame(self, bg=P["BORDER"], width=1).pack(side="left", fill="y")
 
         brand = tk.Frame(side, bg=P["SIDEBAR"], padx=18, pady=20)
         brand.pack(fill="x")
-        mark = tk.Canvas(brand, width=38, height=38, bg=P["SIDEBAR"], highlightthickness=0)
+        m = scaled(self, 38)
+        mark = tk.Canvas(brand, width=m, height=m, bg=P["SIDEBAR"], highlightthickness=0)
         mark.pack(side="left")
 
         def _draw_mark():
             mark.delete("all")
-            mark.create_oval(1, 1, 37, 37, fill=_P["ACCENT"], width=0)
-            mark.create_text(19, 19, text="A", fill="white", font=_font(15, "bold"))
+            mark.create_oval(1, 1, m - 1, m - 1, fill=_P["ACCENT_FILL"], width=0)
+            mark.create_text(m / 2, m / 2, text="A", fill=ON_ACCENT, font=_font(15, "bold"))
         _draw_mark()
         self._on_theme(mark, _draw_mark)
 
@@ -594,7 +633,8 @@ class AriseIApp(tk.Tk):
             brand, text="🌙" if self._theme == "dark" else "☀️", font=_font(12),
             fg=P["FG_DIM"], bg=P["SIDEBAR"], activebackground=P["HOVER"],
             activeforeground=P["FG"], relief="flat", bd=0, padx=6, pady=2,
-            cursor="hand2", command=self._toggle_theme)
+            cursor="hand2", command=self._toggle_theme,
+            highlightthickness=1, highlightbackground=P["SIDEBAR"], highlightcolor=P["ACCENT"])
         self._theme_btn.pack(side="right")
         self._hover(self._theme_btn, "SIDEBAR", "HOVER")
         self._tooltip(self._theme_btn, f"Dark mode  ({_MOD_LABEL}+D)")
@@ -614,8 +654,8 @@ class AriseIApp(tk.Tk):
             lb = tk.Label(item, text=label, font=_font(10), fg=P["FG"],
                           bg=P["SIDEBAR"], cursor="hand2")
             lb.pack(side="left")
-            badge = tk.Label(item, text="", font=_font(8, "bold"), fg="white",
-                             bg=P["ACCENT"], padx=7, pady=0, cursor="hand2")
+            badge = tk.Label(item, text="", font=_font(8, "bold"), fg=ON_ACCENT,
+                             bg=P["ACCENT_FILL"], padx=7, pady=0, cursor="hand2")
             parts = (item, ic, lb, badge)
             for w in parts:
                 w.bind("<Button-1>", lambda e, p=page_id: self._switch_tab(p))
@@ -643,14 +683,15 @@ class AriseIApp(tk.Tk):
 
         pulse_row = tk.Frame(auto_card, bg=P["SURFACE"])
         pulse_row.pack(fill="x", pady=(6, 0))
-        self._pulse_dot = tk.Canvas(pulse_row, width=14, height=14, bg=P["SURFACE"],
+        d = scaled(self, 14)
+        self._pulse_dot = tk.Canvas(pulse_row, width=d, height=d, bg=P["SURFACE"],
                                     highlightthickness=0)
         self._pulse_dot.pack(side="left", padx=(0, 6))
         self._pulse_label = tk.Label(pulse_row, text="Off", font=_font(9),
                                      fg=P["FG_DIM"], bg=P["SURFACE"], anchor="w")
         self._pulse_label.pack(side="left", fill="x")
         tk.Label(auto_card, text="Sorts new files the moment they land",
-                 font=_font(8), fg=P["FG_DIM"], bg=P["SURFACE"], wraplength=190,
+                 font=_font(8), fg=P["FG_DIM"], bg=P["SURFACE"], wraplength=scaled(self, 190),
                  justify="left").pack(anchor="w", pady=(4, 0))
         self._draw_pulse_dot(0.0)
         self._on_theme(self._pulse_dot, lambda: self._draw_pulse_dot(0.0))
@@ -674,7 +715,8 @@ class AriseIApp(tk.Tk):
         tk.Frame(main, bg=P["BORDER"], height=1).pack(fill="x")
 
         # Indeterminate progress strip — animates while a run is in flight
-        self._progress = tk.Canvas(main, height=3, bg=P["BG"], highlightthickness=0, bd=0)
+        self._progress = tk.Canvas(main, height=scaled(self, 3), bg=P["BG"],
+                                   highlightthickness=0, bd=0)
         self._progress.pack(fill="x")
 
         # Toolbar: folder field on top, the actions that act on it just below
@@ -913,6 +955,7 @@ class AriseIApp(tk.Tk):
     def _apply_scan(self, token: int, loose: int, review: int) -> None:
         if token != self._hint_token:
             return  # the folder changed while this scan ran
+        self._loose_count = loose
         count = f"{loose:,}{'+' if loose >= 10000 else ''}"
         text = (f"{count} loose file{'s' if loose != 1 else ''} ready to sort"
                 if loose else "✓  Nothing to sort — this folder is tidy")
@@ -1031,6 +1074,12 @@ class AriseIApp(tk.Tk):
             w.destroy()
 
         total = stats.total_files()
+        if not total and not stats.errors:
+            self._empty_state(frame, "✨", "Nothing to sort",
+                              "Every file here is already in its folder. Drop new files in, "
+                              "or turn on Auto-Sort to handle them as they arrive.")
+            self._switch_tab("stats")
+            return
         if dry_run:
             title = "Preview ready"
             sub   = f"{total} file{'s' if total != 1 else ''} would be organized — nothing has moved yet."
@@ -1085,7 +1134,8 @@ class AriseIApp(tk.Tk):
                 label = "Review" if cat == REVIEW_FOLDER else cat
                 tk.Label(rows, text=f"{_cat_icon(cat)}  {label}", font=_font(10), fg=P["FG"],
                          bg=P["SURFACE"], anchor="w", width=18).grid(row=r, column=0, sticky="w", pady=4)
-                bar = tk.Canvas(rows, height=12, bg=P["SURFACE"], highlightthickness=0, bd=0)
+                bar = tk.Canvas(rows, height=scaled(self, 12), bg=P["SURFACE"],
+                                highlightthickness=0, bd=0)
                 bar.grid(row=r, column=1, sticky="ew", padx=(8, 12))
                 tk.Label(rows, text=str(data["count"]), font=_font(10, "bold"), fg=P["FG"],
                          bg=P["SURFACE"], width=4, anchor="e").grid(row=r, column=2, sticky="e")
@@ -1118,11 +1168,13 @@ class AriseIApp(tk.Tk):
         c.delete("all")
         if w < 12:
             return
-        y = 6
-        c.create_line(6, y, w - 6, y, width=10, capstyle="round", fill=_P["BG"])
-        end = 6 + (w - 12) * row["frac"] * row["prog"]
+        h = c.winfo_height()
+        y, thick, pad = h / 2, max(4, h - 2), h / 2
+        c.create_line(pad, y, w - pad, y, width=thick, capstyle="round", fill=_P["BG"])
+        end = pad + (w - 2 * pad) * row["frac"] * row["prog"]
         if row["prog"] > 0:
-            c.create_line(6, y, max(6.5, end), y, width=10, capstyle="round", fill=_P[row["color"]])
+            c.create_line(pad, y, max(pad + 0.5, end), y, width=thick, capstyle="round",
+                          fill=_P[row["color"]])
 
     # ------------------------------------------------------------------ Review Queue
 
@@ -1160,7 +1212,7 @@ class AriseIApp(tk.Tk):
         tk.Label(banner, text=f"⚑  {len(files)} file{'s' if len(files) != 1 else ''} need a decision. "
                               "Pick a suggestion or choose any folder — ARISE-I learns from every choice.",
                  font=_font(10), fg=_P["FG"], bg=_P["ACCENT_SOFT"], justify="left",
-                 wraplength=640).pack(anchor="w")
+                 wraplength=scaled(self, 640)).pack(anchor="w")
 
         categories = load_categories(None, target)
         choices    = list(categories.keys()) + ["Others"]
@@ -1217,12 +1269,12 @@ class AriseIApp(tk.Tk):
             chip = tk.Button(
                 btn_row, text=f"{_cat_icon(cat)} {cat}",
                 font=_font(9, "bold"), fg=P["ACCENT"], bg=P["ACCENT_SOFT"],
-                activebackground=P["ACCENT"], activeforeground="white",
+                activebackground=P["ACCENT_FILL"], activeforeground=ON_ACCENT,
                 relief="flat", bd=0, padx=10, pady=4, cursor="hand2",
                 command=lambda i=item, c=cat, t=target: self._confirm_category(i, c, t),
             )
             chip.pack(side="left", padx=(0, 6))
-            self._hover(chip, "ACCENT_SOFT", "ACCENT", fg="ACCENT", fg_hover="white")
+            self._hover(chip, "ACCENT_SOFT", "ACCENT_FILL", fg="ACCENT", fg_hover=ON_ACCENT)
 
         # …plus every category via a dropdown
         move = self._button(btn_row, "Move", None, kind="primary", size=9, padx=12, pady=4)
@@ -1287,12 +1339,14 @@ class AriseIApp(tk.Tk):
 
     def _draw_pulse_dot(self, glow: float) -> None:
         c = self._pulse_dot
+        d = int(c.cget("width"))
+        lo, hi = d * 0.25, d * 0.75
         c.delete("all")
         if self._pulse_active:
-            c.create_oval(0, 0, 14, 14, fill=mix(_P["SURFACE"], _P["GREEN"], 0.15 + 0.3 * glow), width=0)
-            c.create_oval(3.5, 3.5, 10.5, 10.5, fill=_P["GREEN"], width=0)
+            c.create_oval(0, 0, d, d, fill=mix(_P["SURFACE"], _P["GREEN"], 0.15 + 0.3 * glow), width=0)
+            c.create_oval(lo, lo, hi, hi, fill=_P["GREEN"], width=0)
         else:
-            c.create_oval(3.5, 3.5, 10.5, 10.5, fill=mix(_P["SURFACE"], _P["FG_DIM"], 0.6), width=0)
+            c.create_oval(lo, lo, hi, hi, fill=mix(_P["SURFACE"], _P["FG_DIM"], 0.6), width=0)
 
     def _start_pulse(self):
         self._pulse_active = True
@@ -1332,12 +1386,12 @@ class AriseIApp(tk.Tk):
         w = c.winfo_width()
         c.delete("all")
         if not self._animations:
-            c.create_rectangle(0, 0, w, 3, fill=_P["ACCENT"], width=0)
+            c.create_rectangle(0, 0, w, c.winfo_height(), fill=_P["ACCENT"], width=0)
             return
         self._prog_phase = (self._prog_phase + 0.012) % 1.0
         seg = w * 0.3
         x = -seg + (w + seg) * ease_in_out(self._prog_phase)
-        c.create_rectangle(x, 0, x + seg, 3, fill=_P["ACCENT"], width=0)
+        c.create_rectangle(x, 0, x + seg, c.winfo_height(), fill=_P["ACCENT"], width=0)
         self._prog_job = self.after(16, self._progress_tick)
 
     # ------------------------------------------------------------------ Log
@@ -1393,6 +1447,7 @@ class AriseIApp(tk.Tk):
             return
 
         if msg == "__DONE__":
+            self._run_label = ""
             self._set_buttons_enabled(True)
             self._set_status("Ready to organize")
             self._refresh_folder_hint()
@@ -1406,6 +1461,15 @@ class AriseIApp(tk.Tk):
             self._log("🧠  Retraining model…", "hdr")
         else:
             self._log(msg, self._tag_for(msg))
+            self._count_progress(msg)
+
+    def _count_progress(self, msg: str) -> None:
+        """Show "Organizing… 12 / 40" while a manual run reports each file."""
+        if not (self._busy and self._run_label and "  →  " in msg):
+            return
+        self._run_done += 1
+        total = max(self._loose_count, self._run_done)
+        self._set_status(f"{self._run_label}…  {self._run_done:,} / {total:,} files", "busy")
 
     @staticmethod
     def _tag_for(msg: str) -> str:
@@ -1512,7 +1576,9 @@ class AriseIApp(tk.Tk):
         self._set_buttons_enabled(False)
         (self._preview_btn if dry_run else self._sort_btn).configure(
             text="⏳  Previewing…" if dry_run else "⏳  Organizing…")
-        self._set_status("Previewing…" if dry_run else "Organizing…", "busy")
+        self._run_label = "Previewing" if dry_run else "Organizing"
+        self._run_done = 0
+        self._set_status(f"{self._run_label}…", "busy")
         self._switch_tab("log")
         self._log("🔎  Previewing changes" if dry_run else "✨  Organizing files", "hdr")
 
@@ -1684,7 +1750,7 @@ class AriseIApp(tk.Tk):
         self._sort_btn.configure(state=state)
         self._preview_btn.configure(state=state)
         self._undo_btn.configure(state=state)
-        self._sort_btn.configure(bg=_P["ACCENT"] if enabled else _P["ACCENT_D"])
+        self._sort_btn.configure(bg=_P["ACCENT_FILL"] if enabled else _P["ACCENT_D"])
         if enabled:
             self._sort_btn.configure(text="✨  Organize Now")
             self._preview_btn.configure(text="🔎  Preview", bg=_P["SURFACE"])
@@ -1742,7 +1808,22 @@ class AriseIApp(tk.Tk):
                        done=self.destroy, ease=ease_in_out)
 
 
+def _enable_hidpi() -> None:
+    """Ask Windows for real pixels instead of a blurry bitmap-stretched window."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)  # per-monitor aware
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+
 def main():
+    _enable_hidpi()
     app = AriseIApp()
     app.mainloop()
 
