@@ -10,6 +10,7 @@ on:
       - "arise_i/core/assignment.py"
       - "arise_i/core/organizer.py"
       - "arise_i/core/paths.py"
+      - "arise_i/__init__.py"
       - "pyproject.toml"
       - ".github/workflows/android.yml"
   pull_request:
@@ -21,6 +22,7 @@ on:
       - "arise_i/core/assignment.py"
       - "arise_i/core/organizer.py"
       - "arise_i/core/paths.py"
+      - "arise_i/__init__.py"
       - ".github/workflows/android.yml"
   workflow_dispatch:
 

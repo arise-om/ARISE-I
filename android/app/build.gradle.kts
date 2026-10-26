@@ -4,9 +4,12 @@ plugins {
     kotlin("plugin.compose")
 }
 
-// One version for every platform: read it from the desktop's pyproject.toml.
-val appVersion: String = Regex("""(?m)^version\s*=\s*"([^"]+)"""")
-    .find(rootDir.resolve("../pyproject.toml").readText())!!.groupValues[1]
+// One version for every platform: read it from the Python package, the
+// single place it is bumped (pyproject.toml takes it from there too).
+val versionFile = rootDir.resolve("../arise_i/__init__.py")
+val appVersion: String = Regex("""(?m)^__version__\s*=\s*"([^"]+)"""")
+    .find(versionFile.readText())?.groupValues?.get(1)
+    ?: error("No __version__ = \"x.y.z\" line in $versionFile")
 val appVersionCode: Int = appVersion.split(".").map { it.takeWhile(Char::isDigit).toInt() }
     .let { (major, minor, patch) -> major * 10_000 + minor * 100 + patch }
 
