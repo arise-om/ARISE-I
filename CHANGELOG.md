@@ -32,6 +32,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `docs/QUICKSTART.md` (merged into the README) and `requirements-dev.txt` removed.
 
 ### Added
+- **Native Android app** (`android/`, Kotlin + Jetpack Compose, Android 8+), shipped as
+  `ARISE-I-Android.apk` on tagged releases. Plan screen before every move, swipe/bulk Review
+  queue, per-file and whole-run undo, per-folder auto-sort (every 15 min or instantly),
+  result notifications with Undo, Quick Settings tile, health checks. No network permission.
+- **Shared rules**: `scripts/export_rules.py` exports the classifier tables for the Android
+  engine; `tests/fixtures/classification_golden.json` holds both engines to the same results.
+- **Crash-safe journal** on Android: a run interrupted at any point is recovered on next
+  start with no lost or duplicated files, and Review choices can be undone.
 - Review decisions are recorded for Undo.
 - Status-bar progress ("Organizing… 12 / 40 files") and error states; a
   "Nothing to sort" page; keyboard focus rings; a themed shortcuts dialog.

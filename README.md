@@ -56,7 +56,11 @@ The installer creates a private virtual environment, offers the optional AI extr
 
 Then: pick a folder, click **🔎 Preview** to see what would happen, and **✨ Organize Now** when you're happy. **↩ Undo** puts everything back.
 
-The [User Guide](docs/USER_GUIDE.md) covers every screen, shortcut and option.
+### Android
+
+Download `ARISE-I-Android.apk` from the latest release — same rules, Plan-before-move, swipeable Review queue, undo for every file, and auto-sort in the background. See [docs/ANDROID.md](docs/ANDROID.md).
+
+The [User Guide](docs/USER_GUIDE.md) covers every screen, shortcut and option of the desktop app.
 
 ---
 
@@ -181,7 +185,7 @@ def classify(path: Path) -> str | None:
 | **ML model** | TF-IDF + Multinomial Naive Bayes, trained locally |
 | **Storage** | `~/.arise-i/` — feedback log, model pickle, prefs |
 | **Privacy** | 100 % local — no network requests, ever |
-| **Platforms** | Linux, macOS, Windows |
+| **Platforms** | Linux, macOS, Windows, Android 8+ ([docs/ANDROID.md](docs/ANDROID.md)) |
 
 ---
 
@@ -202,6 +206,8 @@ arise_i/
 │                plugins, prefs
 ├── gui/         Tk app, first-run wizard, theme (palettes, fonts, animation)
 └── constants.py shared file and folder names
+android/         native Android app (Kotlin); its engine loads rules exported
+                 from the Python classifier — see docs/ANDROID.md
 packaging/       PyInstaller spec and Windows (Inno Setup) installer
 scripts/         install / start scripts, demo-folder generator
 tests/           pytest suite (runs against a throwaway HOME)

@@ -1,0 +1,432 @@
+{
+  "schema_version": 1,
+  "engine_version": "2.2.0",
+  "review_folder": "__Review__",
+  "fallback_category": "Others",
+  "confidence_threshold": 0.75,
+  "badge": {
+    "high": 0.85,
+    "med": 0.65
+  },
+  "layer_confidence": {
+    "extension_hit": 0.92,
+    "extension_miss": 0.1,
+    "mime_exact": 0.88,
+    "mime_miss": 0.05,
+    "heuristic_miss": 0.05,
+    "model_miss": 0.05
+  },
+  "categories": {
+    "Images": [
+      ".jpg",
+      ".jpeg",
+      ".jfif",
+      ".png",
+      ".gif",
+      ".bmp",
+      ".svg",
+      ".webp",
+      ".tiff",
+      ".heic",
+      ".avif",
+      ".ico"
+    ],
+    "Documents": [
+      ".doc",
+      ".docx",
+      ".txt",
+      ".rtf",
+      ".odt",
+      ".md"
+    ],
+    "PDFs": [
+      ".pdf"
+    ],
+    "Spreadsheets": [
+      ".xls",
+      ".xlsx",
+      ".csv",
+      ".ods"
+    ],
+    "Presentations": [
+      ".ppt",
+      ".pptx",
+      ".odp"
+    ],
+    "Videos": [
+      ".mp4",
+      ".m4v",
+      ".mkv",
+      ".avi",
+      ".mov",
+      ".wmv",
+      ".flv",
+      ".webm"
+    ],
+    "Music": [
+      ".mp3",
+      ".wav",
+      ".flac",
+      ".aac",
+      ".ogg",
+      ".opus",
+      ".m4a",
+      ".wma"
+    ],
+    "Archives": [
+      ".zip",
+      ".rar",
+      ".7z",
+      ".tar",
+      ".gz",
+      ".bz2",
+      ".xz",
+      ".tgz"
+    ],
+    "Code": [
+      ".py",
+      ".js",
+      ".ts",
+      ".html",
+      ".css",
+      ".java",
+      ".cpp",
+      ".c",
+      ".go",
+      ".rs",
+      ".sh",
+      ".json",
+      ".yaml",
+      ".yml",
+      ".toml",
+      ".xml",
+      ".rb",
+      ".php",
+      ".ipynb"
+    ],
+    "Installers": [
+      ".exe",
+      ".msi",
+      ".msix",
+      ".dmg",
+      ".pkg",
+      ".apk",
+      ".deb",
+      ".rpm",
+      ".appimage",
+      ".iso"
+    ],
+    "Fonts": [
+      ".ttf",
+      ".otf",
+      ".woff",
+      ".woff2"
+    ],
+    "Ebooks": [
+      ".epub",
+      ".mobi",
+      ".azw3"
+    ]
+  },
+  "mime_exact": {
+    "application/epub+zip": "Ebooks",
+    "application/gzip": "Archives",
+    "application/javascript": "Code",
+    "application/json": "Code",
+    "application/msword": "Documents",
+    "application/pdf": "PDFs",
+    "application/vnd.android.package-archive": "Installers",
+    "application/vnd.ms-excel": "Spreadsheets",
+    "application/vnd.ms-powerpoint": "Presentations",
+    "application/x-7z-compressed": "Archives",
+    "application/x-apple-diskimage": "Installers",
+    "application/x-bzip2": "Archives",
+    "application/x-deb": "Installers",
+    "application/x-mobipocket-ebook": "Ebooks",
+    "application/x-msdownload": "Installers",
+    "application/x-rar": "Archives",
+    "application/x-rar-compressed": "Archives",
+    "application/x-rpm": "Installers",
+    "application/x-tar": "Archives",
+    "application/x-xz": "Archives",
+    "application/xml": "Code",
+    "application/zip": "Archives"
+  },
+  "mime_prefix": [
+    {
+      "prefix": "image/",
+      "category": "Images",
+      "confidence": 0.9
+    },
+    {
+      "prefix": "video/",
+      "category": "Videos",
+      "confidence": 0.9
+    },
+    {
+      "prefix": "audio/",
+      "category": "Music",
+      "confidence": 0.9
+    },
+    {
+      "prefix": "font/",
+      "category": "Fonts",
+      "confidence": 0.88
+    },
+    {
+      "prefix": "application/font",
+      "category": "Fonts",
+      "confidence": 0.88
+    },
+    {
+      "prefix": "application/vnd.openxmlformats-officedocument.wordprocessingml",
+      "category": "Documents",
+      "confidence": 0.92
+    },
+    {
+      "prefix": "application/vnd.openxmlformats-officedocument.spreadsheetml",
+      "category": "Spreadsheets",
+      "confidence": 0.92
+    },
+    {
+      "prefix": "application/vnd.openxmlformats-officedocument.presentationml",
+      "category": "Presentations",
+      "confidence": 0.92
+    },
+    {
+      "prefix": "application/vnd.oasis.opendocument.text",
+      "category": "Documents",
+      "confidence": 0.9
+    },
+    {
+      "prefix": "application/vnd.oasis.opendocument.spreadsheet",
+      "category": "Spreadsheets",
+      "confidence": 0.9
+    },
+    {
+      "prefix": "text/html",
+      "category": "Code",
+      "confidence": 0.78
+    },
+    {
+      "prefix": "text/css",
+      "category": "Code",
+      "confidence": 0.78
+    },
+    {
+      "prefix": "text/javascript",
+      "category": "Code",
+      "confidence": 0.78
+    },
+    {
+      "prefix": "text/plain",
+      "category": "Documents",
+      "confidence": 0.55
+    }
+  ],
+  "heuristics": [
+    {
+      "pattern": "(?<![a-z])(?:screenshot|screen.?cap|screen.?grab)(?![a-z])",
+      "flags": "i",
+      "category": "Images",
+      "confidence": 0.82
+    },
+    {
+      "pattern": "\\b(IMG|DSC|DCIM|PHOTO)[-_]\\d{4,}",
+      "flags": "i",
+      "category": "Images",
+      "confidence": 0.8
+    },
+    {
+      "pattern": "(?<![a-z])(?:wallpapers?|backgrounds?|avatars?)(?![a-z])",
+      "flags": "i",
+      "category": "Images",
+      "confidence": 0.78
+    },
+    {
+      "pattern": "(?<![a-z])(?:invoices?|receipts?|statements?|billing)(?![a-z])",
+      "flags": "i",
+      "category": "Documents",
+      "confidence": 0.84
+    },
+    {
+      "pattern": "(?<![a-z])(?:resume|curriculum.?vitae|cv)(?![a-z])",
+      "flags": "i",
+      "category": "Documents",
+      "confidence": 0.88
+    },
+    {
+      "pattern": "(?<![a-z])(?:lectures?|notes?)(?![a-z])",
+      "flags": "i",
+      "category": "Documents",
+      "confidence": 0.76
+    },
+    {
+      "pattern": "setup[-_ v]\\d|installer[-_ ]",
+      "flags": "i",
+      "category": "Installers",
+      "confidence": 0.8
+    },
+    {
+      "pattern": "(?<![a-z])(?:ebooks?|e-books?)(?![a-z])",
+      "flags": "i",
+      "category": "Ebooks",
+      "confidence": 0.82
+    },
+    {
+      "pattern": "(?<![a-z])(?:soundtracks?|ost|playlists?|albums?)(?![a-z])",
+      "flags": "i",
+      "category": "Music",
+      "confidence": 0.78
+    },
+    {
+      "pattern": "(?<![a-z])(?:tutorials?|walkthroughs?|gameplay|playthroughs?)(?![a-z])",
+      "flags": "i",
+      "category": "Videos",
+      "confidence": 0.76
+    },
+    {
+      "pattern": "(?<![a-z])(?:fonts?|typefaces?)(?![a-z])",
+      "flags": "i",
+      "category": "Fonts",
+      "confidence": 0.82
+    }
+  ],
+  "assignment": {
+    "types": [
+      "lab report",
+      "assignment",
+      "project",
+      "lab"
+    ],
+    "type_first": [
+      "(?<type>lab report)\\s*(?<num>\\d+)\\s*[-–—]\\s*(?<subject>.+?)(?:\\s+[-–—]\\s+.*)?$",
+      "(?<type>assignment)\\s*(?<num>\\d+)\\s*[-–—]\\s*(?<subject>.+?)(?:\\s+[-–—]\\s+.*)?$",
+      "(?<type>project)\\s*(?<num>\\d+)\\s*[-–—]\\s*(?<subject>.+?)(?:\\s+[-–—]\\s+.*)?$",
+      "(?<type>lab)\\s*(?<num>\\d+)\\s*[-–—]\\s*(?<subject>.+?)(?:\\s+[-–—]\\s+.*)?$"
+    ],
+    "subject_first": [
+      "(?<subject>.+?)\\s*[-–—]\\s*(?<type>lab report)\\s*(?<num>\\d+)",
+      "(?<subject>.+?)\\s*[-–—]\\s*(?<type>assignment)\\s*(?<num>\\d+)",
+      "(?<subject>.+?)\\s*[-–—]\\s*(?<type>project)\\s*(?<num>\\d+)",
+      "(?<subject>.+?)\\s*[-–—]\\s*(?<type>lab)\\s*(?<num>\\d+)"
+    ],
+    "no_subject": [
+      "^(?<type>lab report)\\s*(?<num>\\d+)$",
+      "^(?<type>assignment)\\s*(?<num>\\d+)$",
+      "^(?<type>project)\\s*(?<num>\\d+)$",
+      "^(?<type>lab)\\s*(?<num>\\d+)$"
+    ],
+    "confidence": {
+      "type_first": 0.95,
+      "subject_first": 0.93,
+      "no_subject": 0.8
+    },
+    "subject_strip": " -–—_.",
+    "copy_suffix": "\\s*\\(\\d+\\)$"
+  },
+  "skip": {
+    "own_files": [
+      ".arise-i-log.json",
+      "arise-i.config.yaml",
+      "arise-i.log"
+    ],
+    "system_files": [
+      "desktop.ini",
+      "ehthumbs.db",
+      "thumbs.db"
+    ],
+    "partial_suffixes": [
+      ".!qb",
+      ".!ut",
+      ".crdownload",
+      ".download",
+      ".opdownload",
+      ".part",
+      ".partial",
+      ".tmp"
+    ]
+  },
+  "learning": {
+    "min_samples": 20,
+    "retrain_threshold": 50,
+    "min_class_samples": 2,
+    "alpha": 0.5,
+    "max_features": 8000
+  },
+  "mime_by_extension": {
+    ".3gp": "video/3gpp",
+    ".7z": "application/x-7z-compressed",
+    ".aac": "audio/aac",
+    ".apk": "application/vnd.android.package-archive",
+    ".avi": "video/x-msvideo",
+    ".avif": "image/avif",
+    ".bmp": "image/bmp",
+    ".bz2": "application/x-bzip2",
+    ".css": "text/css",
+    ".csv": "text/csv",
+    ".deb": "application/x-deb",
+    ".dmg": "application/x-apple-diskimage",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".epub": "application/epub+zip",
+    ".exe": "application/x-msdownload",
+    ".flac": "audio/flac",
+    ".gif": "image/gif",
+    ".gz": "application/gzip",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
+    ".htm": "text/html",
+    ".html": "text/html",
+    ".ico": "image/vnd.microsoft.icon",
+    ".jpe": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".js": "text/javascript",
+    ".json": "application/json",
+    ".m4a": "audio/mp4",
+    ".mid": "audio/midi",
+    ".midi": "audio/midi",
+    ".mjs": "text/javascript",
+    ".mkv": "video/x-matroska",
+    ".mobi": "application/x-mobipocket-ebook",
+    ".mov": "video/quicktime",
+    ".mp3": "audio/mpeg",
+    ".mp4": "video/mp4",
+    ".mpeg": "video/mpeg",
+    ".mpg": "video/mpeg",
+    ".odp": "application/vnd.oasis.opendocument.presentation",
+    ".ods": "application/vnd.oasis.opendocument.spreadsheet",
+    ".odt": "application/vnd.oasis.opendocument.text",
+    ".oga": "audio/ogg",
+    ".ogg": "audio/ogg",
+    ".ogv": "video/ogg",
+    ".opus": "audio/opus",
+    ".otf": "font/otf",
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".rar": "application/x-rar-compressed",
+    ".rpm": "application/x-rpm",
+    ".svg": "image/svg+xml",
+    ".tar": "application/x-tar",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+    ".ttf": "font/ttf",
+    ".txt": "text/plain",
+    ".wav": "audio/wav",
+    ".weba": "audio/webm",
+    ".webm": "video/webm",
+    ".webp": "image/webp",
+    ".wma": "audio/x-ms-wma",
+    ".wmv": "video/x-ms-wmv",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xml": "application/xml",
+    ".xz": "application/x-xz",
+    ".zip": "application/zip"
+  }
+}
