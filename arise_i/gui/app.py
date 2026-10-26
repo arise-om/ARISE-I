@@ -1,4 +1,4 @@
-"""ARISE-I v2.1.0 — GUI (AI-Powered Dashboard)"""
+"""ARISE-I desktop app — the Tk dashboard (`arise-i-gui`)."""
 
 import math
 import os
@@ -812,8 +812,9 @@ class AriseIApp(tk.Tk):
         # Last run
         stats_frame = tk.Frame(content, bg=P["BG"])
         self._tab_frames["stats"] = stats_frame
-        self._stats_frame_ref = stats_frame
-        self._empty_state(stats_frame, "📊", "No runs yet",
+        # Scrollable: a run with many categories is taller than a small window
+        self._stats_canvas, self._stats_frame_ref = self._scroll_area(stats_frame)
+        self._empty_state(self._stats_frame_ref, "📊", "No runs yet",
                           "Preview a folder to see exactly what ARISE-I would do — nothing moves until you say so.",
                           ("🔎  Preview Changes", self._preview))
 
@@ -1072,6 +1073,7 @@ class AriseIApp(tk.Tk):
         frame = self._stats_frame_ref
         for w in frame.winfo_children():
             w.destroy()
+        self._stats_canvas.yview_moveto(0)
 
         total = stats.total_files()
         if not total and not stats.errors:

@@ -6,25 +6,19 @@ ARISE-I watches your Downloads folder (or any folder) and automatically sorts fi
 
 ---
 
-## 🆕 What's New in v2.1.0 (reliability release)
+<p align="center">
+  <img src="docs/images/preview-light.png" width="49%" alt="Preview of a Downloads folder: 21 files across 13 categories">
+  <img src="docs/images/review-dark.png" width="49%" alt="Review Queue in dark mode with two files awaiting a decision">
+</p>
 
-- **Auto-Sort works again with watchdog 4+** — new and modified files were silently ignored
-- **Never moves files it shouldn't** — `desktop.ini`, `Thumbs.db`, Windows hidden/system files, Office `~$` lock files, `arise-i.config.yaml`, and in-progress downloads (`.crdownload`, `.part`, …)
-- **Safer Undo** — never overwrites a newer file, keeps failed moves for a retry, removes empty category folders, and asks before running
-- **Smarter learning** — Review-quarantined files are no longer logged as a fake `__Review__` category; retrained models load immediately
-- **Review Queue** — classifier suggestions plus every category (was limited to the first six); no overwrites
-- **Dark mode text is readable**; health alerts no longer repeat every minute
-- Config is now auto-detected **in the target folder** (as documented), then the current directory
+## 🆕 What's New in v2.2.0
 
-## v2.0.0
+- **Safer runs** — overlapping runs can no longer overwrite each other's files, an interrupted run keeps its undo record, and Review decisions can be undone too
+- **Smarter sorting** — fewer false matches (`blog_post` is no longer Music) and assignment copies like `Lab 2 - Bio (1).pdf` file under the right subject
+- **Clearer app** — real progress counts, honest Undo results, readable colours (WCAG AA) in both themes, sharp on HiDPI screens, full keyboard focus
+- **Reliable installs** — Windows installs into its own environment, release builds include the AI layer, and the code now lives in an `arise_i` package
 
-- **AI Classification Engine** — Multi-layer classifier: extension → MIME → heuristics → local ML model
-- **Confidence Scoring** — Every file gets a confidence badge (`[HIGH 92%]` / `[MED 71%]` / `[LOW 34%]`)
-- **Review Queue** — Uncertain files go to `__Review__/` instead of being silently mis-sorted; a dedicated tab lets you confirm the right category in one click
-- **Adaptive Learning** — Each correction trains a local `scikit-learn` model so ARISE-I improves over time
-- **Self-Healing Daemon** — Background health monitor auto-repairs corrupted manifests, detects disk pressure, and auto-retrains when accuracy drifts
-- **Dark Mode** — Toggle ☀️/🌙 in the header; preference is saved between sessions
-- **Crash-Resistant Watcher** — Auto-sort daemon restarts itself (exponential backoff, up to 5 times) if the watchdog thread crashes
+See [CHANGELOG.md](CHANGELOG.md) for everything.
 
 ---
 
@@ -34,42 +28,35 @@ ARISE-I watches your Downloads folder (or any folder) and automatically sorts fi
 |---|---|
 | **One-Click Organization** | Click "Organize Now" — done |
 | **Smart Preview** | See exactly what would move before committing |
-| **Undo** | Restore everything from the last run, any time |
+| **Undo** | Restore the last run — or the last Review decision — any time |
 | **Auto-Sort** | Watches for new files and sorts them as they arrive |
 | **AI Classifier** | 4 layers: extension map → MIME sniff → filename heuristics → sklearn ML |
 | **Review Queue** | Low-confidence files quarantined for manual review, not silently misfiled |
-| **Self-Healing** | Background daemon auto-repairs issues without user action |
+| **Self-Healing** | Background monitor repairs corrupt manifests, watches disk space, retrains on drift |
 | **100 % Local** | No cloud, no API keys, no data egress — ever |
 
 ---
 
 ## 🚀 Quick Start
 
-### Install from source (Linux / macOS)
+### Download
+
+Grab the installer for your system from [GitHub Releases](https://github.com/arise-om/ARISE-I/releases) — Windows setup, macOS app, or Linux archive. No Python needed.
+
+### From source
 
 ```bash
 git clone https://github.com/arise-om/ARISE-I.git
 cd ARISE-I
-bash install.sh
-arise-i-gui
+bash scripts/install.sh        # Linux / macOS  (Windows: scripts\install.bat)
+scripts/start.sh               # launch          (Windows: scripts\start.bat)
 ```
 
-The installer will ask if you want AI extras (`scikit-learn` + `filetype`). Choose **Y** for full smart-classification with the ML layer.
+The installer creates a private virtual environment, offers the optional AI extras (`scikit-learn` + `filetype`), and adds a desktop / app-menu shortcut.
 
-### Enable AI extras later
+Then: pick a folder, click **🔎 Preview** to see what would happen, and **✨ Organize Now** when you're happy. **↩ Undo** puts everything back.
 
-```bash
-pip install arise-i[ai]
-# or
-pip install scikit-learn filetype
-```
-
-### Windows
-
-```bat
-install.bat
-start.bat
-```
+The [User Guide](docs/USER_GUIDE.md) covers every screen, shortcut and option.
 
 ---
 
@@ -139,6 +126,8 @@ arise-i --watch
 arise-i --undo
 ```
 
+`python -m arise_i` is the same command. All options: `arise-i --help`.
+
 ---
 
 ## 🔌 Custom Categories
@@ -200,9 +189,26 @@ def classify(path: Path) -> str | None:
 
 ```bash
 pip install -e ".[dev,ai]"
-pytest tests/ -v      # 205 tests (symlink tests skip on Windows without Developer Mode)
+pytest                # ~300 tests; the GUI tests need a display (xvfb-run on Linux CI)
 ruff check .          # lint rules live in pyproject.toml
 ```
+
+## 🗂️ Project Layout
+
+```
+arise_i/
+├── core/        organizer (scan → classify → move, undo, CLI), classifier,
+│                assignment parser, learning store, health monitor, watcher,
+│                plugins, prefs
+├── gui/         Tk app, first-run wizard, theme (palettes, fonts, animation)
+└── constants.py shared file and folder names
+packaging/       PyInstaller spec and Windows (Inno Setup) installer
+scripts/         install / start scripts, demo-folder generator
+tests/           pytest suite (runs against a throwaway HOME)
+docs/            User Guide and screenshots
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow.
 
 ---
 

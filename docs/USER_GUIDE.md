@@ -1,429 +1,232 @@
 # ARISE-I User Guide
 
-**Complete guide to using ARISE-I - Your Personal File Organizer**
+ARISE-I sorts a messy folder — usually Downloads — into tidy category folders,
+on your computer only. Nothing is ever deleted, and every run can be undone.
+
+**Contents:** [Install](#install) · [The window](#the-window) ·
+[Review Queue](#review-queue) · [Auto-Sort](#auto-sort) ·
+[Keyboard shortcuts](#keyboard-shortcuts) · [Command line](#command-line) ·
+[Custom categories](#custom-categories) · [Plugins](#plugins) ·
+[Troubleshooting](#troubleshooting) · [FAQ](#faq)
 
 ---
 
-## Table of Contents
+## Install
 
-1. [Getting Started](#getting-started)
-2. [Basic Usage](#basic-usage)
-3. [Advanced Features](#advanced-features)
-4. [Customization](#customization)
-5. [Troubleshooting](#troubleshooting)
-6. [FAQ](#faq)
+### Download (recommended)
 
----
+Get the latest build from
+[GitHub Releases](https://github.com/arise-om/ARISE-I/releases):
 
-## Getting Started
+| System | File | Then |
+|---|---|---|
+| Windows | `ARISE-I-Setup-<version>-Windows.exe` | Run the installer |
+| macOS | `ARISE-I-macOS.zip` | Unzip and drag **ARISE-I.app** to Applications |
+| Linux | `ARISE-I-Linux.tar.gz` | Extract and run `ARISE-I/ARISE-I` |
 
-### Installation
+The first time you open an unsigned build, macOS asks you to approve it in
+**System Settings → Privacy & Security**, and Windows SmartScreen may show
+**More info → Run anyway**.
 
-#### Windows
-1. Download ARISE-I from GitHub
-2. Extract the zip file
-3. Double-click `install.bat`
-4. Wait for installation to complete
-5. Double-click the ARISE-I icon on your desktop
+### From source
 
-#### macOS
-1. Download ARISE-I from GitHub
-2. Extract the zip file
-3. Open Terminal and navigate to the ARISE-I folder
-4. Run: `bash install.sh`
-5. Wait for installation to complete
-6. Open ARISE-I from Applications
-
-#### Linux
-1. Download ARISE-I from GitHub
-2. Extract the zip file
-3. Open Terminal and navigate to the ARISE-I folder
-4. Run: `bash install.sh`
-5. Wait for installation to complete
-6. Search for "ARISE-I" in your applications menu
-
-### Requirements
-
-- **Python 3.10+** - Required for ARISE-I to run
-- **tkinter** - Required for the GUI (usually included with Python)
-- **PyYAML** - For configuration file support
-- **watchdog** - Optional, required for auto-sort feature
-
----
-
-## Basic Usage
-
-### First-Time Setup
-
-1. **Launch ARISE-I** - Double-click the desktop icon or run `arise-i-gui`
-2. **Select Folder** - ARISE-I defaults to your Downloads folder
-3. **Click "Organize Now"** - One click to organize your files
-4. **Done!** - Your files are now organized into categories
-
-### Using the Interface
-
-#### Main Button
-- **"✨ Organize Now"** - The primary action. Click to organize files in the selected folder
-
-#### Folder Selection
-- **Current Folder** - Shows the folder being organized
-- **"Change" Button** - Click to select a different folder
-
-#### Auto-Sort
-- **"Auto-sort new files" Checkbox** - Enable to automatically organize new files as they arrive
-- **Requires** - The `watchdog` package (auto-installed if missing)
-
-#### Undo
-- **"↩ Undo Last" Button** - Reverses the last organization operation
-- **Safe** - Files are restored to their original locations
-
-#### Activity Log
-- **Bottom Panel** - Shows real-time activity and status messages
-- **Minimal** - Keeps the interface clean while providing feedback
-
----
-
-## Advanced Features
-
-### Command Line Interface
-
-For power users who prefer terminal control:
+You need Python 3.10 or newer, with tkinter (bundled on Windows and with the
+python.org macOS installer; on Linux, e.g. `sudo apt install python3-tk`).
 
 ```bash
-# Basic organization
-arise-i
-
-# Organize specific folder
-arise-i --path ~/Desktop
-
-# Preview without making changes
-arise-i --dry-run
-
-# Watch folder and auto-sort new files
-arise-i --watch
-
-# Watch with custom delay (seconds)
-arise-i --watch --debounce 5
-
-# Undo last organization
-arise-i --undo
-
-# Use custom configuration
-arise-i --config my-config.yaml
+git clone https://github.com/arise-om/ARISE-I.git
+cd ARISE-I
+bash scripts/install.sh          # Linux / macOS
+scripts\install.bat              # Windows
 ```
 
-### Keyboard Shortcuts
-
-Power users can navigate ARISE-I quickly using keyboard shortcuts:
-
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl/Cmd + O` | Organize files |
-| `Ctrl/Cmd + Z` | Undo last organization |
-| `Ctrl/Cmd + B` | Browse folder |
-| `Ctrl/Cmd + L` | Clear log |
-| `Ctrl/Cmd + Q` | Quit application |
-
-*On Mac, use `Cmd` instead of `Ctrl`*
-
-### Auto-Sort Mode
-
-Enable continuous file organization:
-
-1. Check "Auto-sort new files"
-2. ARISE-I monitors the selected folder
-3. New files are automatically organized as they arrive
-4. Perfect for Downloads folders or working directories
-
-**Note:** Auto-sort requires the `watchdog` package, which will be auto-installed if missing.
+The installer creates a private virtual environment (it never touches your
+system Python packages), asks whether to add the optional AI extras, and adds
+an app-menu / desktop shortcut. Afterwards `scripts/start.sh` or
+`scripts\start.bat` launches the app.
 
 ---
 
-## Customization
+## The window
 
-### Custom Categories
+On first launch a short welcome screen asks which folder to organize
+(Downloads is suggested). You can change it any time.
 
-Create a custom configuration file to define your own categories:
+| Area | What it does |
+|---|---|
+| **Folder field** | The folder ARISE-I works on. Type a path or click **Browse…**; **↗** opens it in your file manager. The line below shows how many loose files are ready to sort, or what is wrong with the path. |
+| **🔎 Preview** | Shows exactly what would move — nothing is touched. |
+| **✨ Organize Now** | Sorts the folder (after a confirmation). |
+| **↩ Undo** | Puts the files from the last run (or last Review decision) back where they were. |
+| **Activity** | Live log of every file: where it went and how confident ARISE-I was (`HIGH` / `MED` / `LOW`). |
+| **History** | Past runs in this folder, newest first, with a per-category summary. |
+| **Last Run** | Totals and a per-category chart for the latest preview or run. |
+| **Review Queue** | Files ARISE-I wasn't sure about — see below. |
+| **Auto-Sort switch** | Sorts new files as soon as they land — see below. |
+| **☀️ / 🌙** | Light or dark theme (also **View → Dark Mode**). **View → Animations** turns motion off. |
 
-1. Create a file named `arise-i.config.yaml` in the folder you want to organize
-2. Add your custom categories:
+The status bar at the bottom shows what ARISE-I is doing (with a file count
+during a run) and turns yellow or red when the folder needs attention.
+
+### What never moves
+
+Hidden files, `desktop.ini` / `Thumbs.db`, Office `~$` lock files, downloads
+still in progress (`.crdownload`, `.part`, `.download`, `.tmp`, …), folders,
+and ARISE-I's own `arise-i.log`, `.arise-i-log.json` and
+`arise-i.config.yaml`. ARISE-I refuses to organize a whole drive or your home
+folder — pick a subfolder such as Downloads or Desktop.
+
+---
+
+## Review Queue
+
+When ARISE-I's confidence is below 75 %, it puts the file in a `__Review__`
+folder instead of guessing. The **Review Queue** page lists those files with
+one-click suggestions, plus a drop-down of every category.
+
+Each decision moves the file, is logged so **↩ Undo** can reverse it, and
+teaches the local model (with the AI extras installed, it retrains itself
+after enough corrections).
+
+Assignment files are recognised too: `Assignment 1 - Calculus.pdf` goes to
+`Calculus/Assignment 1/PDFs/`. An assignment with no subject
+(`Assignment 1.pdf`) waits in Review.
+
+---
+
+## Auto-Sort
+
+Flip the **Auto-Sort** switch and ARISE-I watches the selected folder, sorting
+new files once they have stopped changing for a couple of seconds, so
+half-finished downloads are left alone. While it runs, Preview, Organize,
+Undo and the folder field are locked, because the watcher would immediately
+re-sort anything you put back. Turn it off to use them again.
+
+---
+
+## Keyboard shortcuts
+
+Use **Cmd** instead of **Ctrl** on macOS. **F1** shows this list in the app.
+
+| Shortcut | Action |
+|---|---|
+| Ctrl+O | Organize now |
+| Ctrl+P | Preview changes |
+| Ctrl+Z | Undo last run |
+| Ctrl+B | Choose folder |
+| Ctrl+E | Open folder in file manager |
+| Ctrl+1 … Ctrl+4 | Activity, History, Last Run, Review Queue |
+| Ctrl+D | Toggle dark mode |
+| Ctrl+Q | Quit |
+| F1 | Keyboard shortcuts |
+
+---
+
+## Command line
+
+```bash
+arise-i                          # organize ~/Downloads
+arise-i --dry-run                # preview only
+arise-i --path ~/Desktop         # another folder
+arise-i --undo                   # reverse the last run in --path
+arise-i --watch                  # keep watching and sort new files
+arise-i --watch --debounce 5     # wait 5 s of quiet before sorting
+arise-i --config my.yaml         # custom categories
+arise-i --version
+```
+
+`python -m arise_i` works the same way. The exit code is non-zero if any file
+failed to move (or, for `--undo`, failed to restore), which makes it easy to
+use from scripts, `cron` or Task Scheduler:
+
+```bash
+# every day at 02:00
+0 2 * * * arise-i --path ~/Downloads
+```
+
+---
+
+## Custom categories
+
+Put an `arise-i.config.yaml` in the folder you organize (ARISE-I also looks in
+the current directory, or pass `--config`). Each category replaces the
+built-in set — copy the defaults in if you want to keep them:
 
 ```yaml
 Work:
   - .docx
   - .pdf
-  - .xlsx
-  - .pptx
-
-Media:
-  - .mp4
-  - .mkv
-  - .mp3
-  - .wav
-
-Projects:
-  - .py
-  - .js
-  - .html
-  - .css
-
-Personal:
-  - .jpg
-  - .png
-  - .heic
+  - xlsx          # the leading dot is optional
+Media: [.mp4, .mkv, .mp3]
+Scripts: .py      # a single extension is fine too
 ```
 
-3. Run ARISE-I - it will use your custom categories
+---
 
-### Plugin System
+## Plugins
 
-Add custom sorting logic with Python plugins:
-
-1. Create the plugins directory: `mkdir -p ~/.arise-i/plugins`
-2. Create a Python file in that directory:
+A plugin is a Python file in `~/.arise-i/plugins/` with a
+`classify(path) -> str | None` function. Plugins run in alphabetical order
+before the built-in classifier; the first one to return a folder name wins,
+and `None` passes the file on.
 
 ```python
 # ~/.arise-i/plugins/01_by_year.py
+from datetime import datetime
 from pathlib import Path
-import datetime
 
 def classify(path: Path) -> str | None:
-    """Sort image files into Photos-<year> folders."""
     if path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".heic"}:
-        return None  # Let other plugins or defaults handle it
-    year = datetime.datetime.fromtimestamp(path.stat().st_mtime).year
-    return f"Photos-{year}"
+        return None
+    return f"Photos-{datetime.fromtimestamp(path.stat().st_mtime).year}"
 ```
 
-3. Run ARISE-I - your plugin will be automatically loaded
-
-**Plugin Rules:**
-- Plugins are loaded in alphabetical filename order
-- Return a string to categorize the file
-- Return `None` to let other plugins or defaults handle it
-- Plugins that crash are skipped safely
+A plugin that raises an error is skipped for that file. Plugins are ordinary
+Python code running with your permissions — only install ones you trust.
 
 ---
 
 ## Troubleshooting
 
-### Common Issues
+**The app won't start (source install).** Check `python3 -c "import tkinter"`.
+On Linux install `python3-tk`; on macOS use the python.org installer or
+`brew install python-tk`. Re-run the installer afterwards.
 
-#### ARISE-I won't start
+**`arise-i: command not found`.** The installer puts the commands in
+`~/.local/bin`; add it to your `PATH` (the installer prints the line to add),
+or run `scripts/start.sh`.
 
-**Problem:** Double-clicking the icon doesn't open ARISE-I
+**Auto-Sort says it needs watchdog.** It is a regular dependency, so this only
+happens in a hand-made environment: `pip install watchdog`, then restart.
 
-**Solutions:**
-- Ensure Python 3.10+ is installed
-- Reinstall ARISE-I using the installation script
-- Check that tkinter is installed (Linux: `sudo apt install python3-tk`)
+**Some files weren't moved.** Look in **Activity** (or `arise-i.log` in the
+folder) for the reason — usually a file that another program has open, or a
+folder you don't have permission to write to. Close the program and run
+again; don't run ARISE-I as administrator / with `sudo`, which would leave
+files you can't edit.
 
-#### Auto-sort not working
+**Undo says a file couldn't be restored.** The sorted file was moved or
+deleted after the run. Everything else is restored; if you put the file back,
+running Undo again retries it.
 
-**Problem:** Auto-sort checkbox is disabled or doesn't work
-
-**Solutions:**
-- Install watchdog: `pip install watchdog`
-- Restart ARISE-I after installing watchdog
-- Check that the selected folder exists and is accessible
-
-#### Files not being organized
-
-**Problem:** Clicking "Organize Now" doesn't move files
-
-**Solutions:**
-- Check that you have write permissions for the folder
-- Ensure the folder isn't on a read-only filesystem
-- Try running as administrator (Windows) or with sudo (Linux/macOS)
-
-#### Error messages in log
-
-**Problem:** Red error messages appear in the activity log
-
-**Solutions:**
-- Check the specific error message for details
-- Ensure the folder path is valid and accessible
-- Try organizing a different folder to isolate the issue
-
-### Getting Help
-
-If you encounter issues not covered here:
-
-1. **Check the log** - The activity log shows detailed error information
-2. **Try CLI mode** - Run `arise-i --help` for command-line troubleshooting
-3. **Check GitHub** - Visit https://github.com/arise-om/ARISE-I/issues for known issues
-4. **Report bugs** - Create a new issue on GitHub with details
+Still stuck? Open an issue at
+<https://github.com/arise-om/ARISE-I/issues> with your OS, `arise-i --version`
+and the relevant part of `arise-i.log`.
 
 ---
 
 ## FAQ
 
-### Is ARISE-I safe to use?
+**Can ARISE-I delete my files?** No. It only moves files, never overwrites
+one (a clash becomes `photo (1).jpg`), and keeps an undo record.
 
-**Yes!** ARISE-I:
-- Never deletes files, only moves them
-- Logs every action so you can undo
-- Processes everything locally on your computer
-- Doesn't upload or transmit any data
+**Does anything leave my computer?** No. There are no network requests; the
+learning data and model live in `~/.arise-i/`.
 
-### Can ARISE-I delete my files?
+**What if it crashes mid-run?** Files moved so far are written to the undo
+record when the run ends, even if it was interrupted, so Undo still works.
 
-**No.** ARISE-I only moves files into organized folders. It never deletes files.
+**Does it work on network drives?** Yes, just slower.
 
-### What if I make a mistake?
-
-**Use the Undo feature:** Click "↩ Undo Last" to reverse the last organization operation. All files are restored to their original locations.
-
-### Can I organize folders other than Downloads?
-
-**Yes!** Click "Change" next to the folder path to select any folder on your computer.
-
-### Does ARISE-I work with network drives?
-
-**Yes, but performance may be slower** due to network latency. ARISE-I works best with local folders.
-
-### Can I run ARISE-I on multiple folders at once?
-
-**Yes** - Launch multiple instances of ARISE-I, each configured for a different folder.
-
-### How does auto-sort work?
-
-**Auto-sort uses file system monitoring** to detect new files and organize them automatically. It requires the `watchdog` package.
-
-### Can I customize the categories?
-
-**Yes!** Create a `arise-i.config.yaml` file with your custom categories (see Customization section).
-
-### Does ARISE-I work with case-sensitive file systems?
-
-**Yes** - ARISE-I handles case-sensitive file systems (like Linux) correctly.
-
-### What happens if ARISE-I crashes while organizing?
-
-**The undo feature** allows you to restore files even if ARISE-I crashes. The operation is logged and can be reversed.
-
-### Can I use ARISE-I on a server?
-
-**Yes** - ARISE-I works on servers via command line interface. GUI is optional.
-
----
-
-## Tips and Best Practices
-
-### For Best Performance
-
-- **Organize regularly** - Don't let folders get too messy before organizing
-- **Use auto-sort** - Enable for frequently-used folders like Downloads
-- **Customize categories** - Tailor categories to your specific workflow
-- **Use plugins** - Add custom logic for specialized file types
-
-### For Organization Strategies
-
-- **Start with Downloads** - Perfect first folder to organize
-- **Organize by project** - Use custom categories for project-specific files
-- **Regular maintenance** - Run ARISE-I weekly to keep folders clean
-- **Backup first** - While ARISE-I is safe, always backup important files
-
-### For Power Users
-
-- **Use CLI scripts** - Automate ARISE-I in scripts and cron jobs
-- **Create plugins** - Add custom sorting logic for your specific needs
-- **Use config files** - Different configs for different folder types
-- **Monitor logs** - Check `arise-i.log` for detailed operation history
-
----
-
-## Advanced Topics
-
-### Batch Processing
-
-Organize multiple folders in sequence:
-
-```bash
-#!/bin/bash
-# Organize multiple folders
-arise-i --path ~/Downloads
-arise-i --path ~/Desktop
-arise-i --path ~/Documents
-```
-
-### Scheduled Organization
-
-Use cron (Linux/macOS) or Task Scheduler (Windows) to run ARISE-I automatically:
-
-**Linux/macOS (cron):**
-```bash
-# Run every day at 2 AM
-0 2 * * * arise-i --path ~/Downloads
-```
-
-**Windows (Task Scheduler):**
-- Create a task to run `arise-i --path ~/Downloads`
-- Schedule it to run daily or weekly
-
-### Integration with Other Tools
-
-ARISE-I can be integrated with:
-- **Backup scripts** - Organize before backing up
-- **Download managers** - Auto-sort completed downloads
-- **File sync tools** - Organize before syncing to cloud
-
----
-
-## Version Information
-
-Current Version: 1.3.0
-
-### Changelog
-
-**v1.3.0** - Apple-style redesign
-- Beautiful minimalist interface
-- One-click installation
-- Auto-sort feature
-- Keyboard shortcuts
-- Enhanced error handling
-- Performance optimizations
-
-**v1.2.0** - Plugin system
-- Custom plugin support
-- Enhanced configuration options
-- Better security features
-
-**v1.1.0** - Watch mode
-- Auto-sort functionality
-- Real-time file monitoring
-- Improved performance
-
-**v1.0.0** - Initial release
-- Basic file organization
-- CLI interface
-- GUI wrapper
-- Undo support
-
----
-
-## Support and Community
-
-### Getting Help
-
-- **GitHub Issues:** https://github.com/arise-om/ARISE-I/issues
-- **Documentation:** https://github.com/arise-om/ARISE-I
-- **Author:** Om - Robotics & Automation Engineering student, founder of Ironlabs.tech
-
-### Contributing
-
-ARISE-I is open source! Contributions are welcome:
-- Report bugs
-- Suggest features
-- Submit pull requests
-- Improve documentation
-
-### License
-
-MIT License - See LICENSE file for details
-
----
-
-**Thank you for using ARISE-I!**
-
-*Made with ❤️ by Ironlabs.tech*
+**Can it watch several folders?** Run `arise-i --watch --path <folder>` once
+per folder. The app watches one folder at a time.

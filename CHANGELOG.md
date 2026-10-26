@@ -8,7 +8,58 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### 🎨 UI / UX refresh
+---
+
+## [2.2.0] — 2026-10-26
+
+### 🧹 Reorganisation, audit fixes and UI polish
+
+### Changed
+- **Package layout**: the modules now live in an `arise_i` package
+  (`arise_i/core` engine, `arise_i/gui` app, shared names in
+  `arise_i/constants.py`, version in `arise_i/__init__.py`).  The
+  `arise-i` / `arise-i-gui` commands are unchanged; `python -m arise_i` is new.
+  Install and start scripts moved to `scripts/`, packaging files to `packaging/`.
+- **Colours meet WCAG AA** in both themes (accent text, white on buttons and
+  amber hints were 3.0–4.0:1); a test now enforces it.
+- **HiDPI**: Windows DPI awareness, and sizes scale with the screen.  Fonts use
+  the platform's UI font instead of assuming Ubuntu / naming SF Pro.
+- Heuristic filename rules match whole words only, and assignment subjects
+  ignore ` (1)` copy suffixes and trailing ` - extra` text.
+- Auto-retrain runs in the background instead of pausing a sort, and a drift
+  retrain waits for 10 new feedback events.
+- Docs rewritten against the current app; internal planning docs,
+  `docs/QUICKSTART.md` (merged into the README) and `requirements-dev.txt` removed.
+
+### Added
+- Review decisions are recorded for Undo.
+- Status-bar progress ("Organizing… 12 / 40 files") and error states; a
+  "Nothing to sort" page; keyboard focus rings; a themed shortcuts dialog.
+- `packaging/arise-i.spec` and `arise-i-gui --self-test`, run on every release build.
+- `install.bat` installs into its own virtual environment and offers the AI extras.
+
+### Fixed
+- **Overlapping runs could overwrite files** (Organize vs Auto-Sort, or a
+  watcher timer firing during a long sort) — runs are now serialised.
+- **An interrupted run lost its undo record**; one bad file no longer aborts a run.
+- **Undo could get stuck** on a run whose files were all deleted, blocking older runs.
+- Low-confidence assignment files were nested as `Subject/Assignment N/__Review__`.
+- Windows device names (`CON`, `NUL`, …) as subjects or plugin results made
+  folder creation fail.
+- GUI: turning Auto-Sort off and on quickly left two watchers running; "Undo
+  complete" was shown even after errors; one failing refresh stopped all log
+  updates; an empty folder field showed the working directory's history;
+  Ctrl+D/B/E in the path field also edited the text; Cmd+Q on macOS skipped
+  saving preferences; confidence badges were never coloured.
+- First-run wizard: "grab failed" on Linux, finishing with a missing folder,
+  clipped bottom edge, keyboard-unreachable "Skip for now".
+- Release builds shipped without scikit-learn/filetype; `install.bat`'s repair
+  step always reported failure; `pip install arise-i[ai]` hints pointed at a
+  package that isn't on PyPI.
+- Preferences with the wrong value type crashed the app; concurrent updates
+  could be lost.
+
+### 🎨 UI / UX refresh (merged after 2.1.0)
 
 ### Changed
 - **New layout**: a sidebar menu (Activity, History, Last Run, Review Queue)
@@ -43,8 +94,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   turns them off (reduced motion), saved as the `animations` pref.
 - Tooltips on toolbar buttons, mouse-wheel scrolling in History and Review,
   and the window size/position is remembered (`window_geometry` pref).
-- `ui_theme.py` — shared palettes, fonts, colour maths, animation engine and
-  the toggle switch, used by both `gui.py` and `onboarding.py`.
+- Shared theme module (now `arise_i/gui/theme.py`) — palettes, fonts, colour
+  maths, animation engine and the toggle switch, used by the main window and
+  the first-run wizard.
 
 ### Fixed
 - Keyboard shortcuts could start a run while another run or Auto-Sort was
@@ -181,7 +233,7 @@ self-healing AI system that learns from your corrections.
 - **Onboarding wizard**: first-launch modal to set the target folder
 - **Pulsing daemon indicator**: animated dot in Auto-sort status
 - **Persistent preferences**: `~/.arise-i/prefs.json` (last folder, debounce)
-- **`--gui` flag**: launches the dashboard from the CLI
+- **GUI launcher** (`arise-i-gui`) for the dashboard
 
 ### Changed
 - App version constant introduced as `APP_VERSION`
@@ -198,7 +250,7 @@ self-healing AI system that learns from your corrections.
 ### Added
 - Plugin system (`plugin_loader.py`): drop `.py` files into `~/.arise-i/plugins/`
 - `ClassifierPlugin` protocol: `def classify(path: Path) -> str | None`
-- Sandboxed plugin execution (restricted builtins via `exec`)
+- Plugin loading isolated per file: a plugin that fails to import or raises is skipped
 - Plugin errors logged without crashing the organizer
 
 ---
