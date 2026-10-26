@@ -142,11 +142,9 @@ class AriseIApp(tk.Tk):
         self._indicator_y  = None
         self._theme_hooks: list[tuple[tk.Misc, object]] = []
         self._scroll_canvases: set = set()
-        self._bar_rows: list[dict] = []
 
         # Prefs
         self._target_var   = tk.StringVar(value=prefs.get("last_folder", str(Path.home()/"Downloads")))
-        self._dry_run_var  = tk.BooleanVar(value=False)
         self._debounce_var = tk.DoubleVar(value=prefs.get("debounce", 2.0))
         self._auto_sort_var= tk.BooleanVar(value=False)
         self._dark_var     = tk.BooleanVar(value=self._theme == "dark")
@@ -591,7 +589,6 @@ class AriseIApp(tk.Tk):
 
         nav = tk.Frame(side, bg=P["SIDEBAR"], padx=12)
         nav.pack(fill="x")
-        self._nav = nav
         self._nav_items: dict[str, tuple] = {}
         for page_id, label, icon, _sub in _PAGES:
             item = tk.Frame(nav, bg=P["SIDEBAR"], cursor="hand2")
@@ -980,7 +977,6 @@ class AriseIApp(tk.Tk):
         frame = self._stats_frame_ref
         for w in frame.winfo_children():
             w.destroy()
-        self._bar_rows = []
 
         total = stats.total_files()
         if dry_run:
@@ -1043,7 +1039,6 @@ class AriseIApp(tk.Tk):
                          bg=P["SURFACE"], width=4, anchor="e").grid(row=r, column=2, sticky="e")
                 row = {"canvas": bar, "frac": data["count"] / top_count, "prog": 0.0,
                        "color": "YELLOW" if cat == REVIEW_FOLDER else "ACCENT"}
-                self._bar_rows.append(row)
                 bar.bind("<Configure>", lambda e, rw=row: self._draw_bar(rw))
                 self._on_theme(bar, lambda rw=row: self._draw_bar(rw))
 

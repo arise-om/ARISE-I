@@ -40,10 +40,7 @@ except ImportError:
 
 # ── Optional: ML model layer ─────────────────────────────────────────────────
 try:
-    from sklearn.naive_bayes import MultinomialNB          # noqa: F401
-    from sklearn.feature_extraction.text import TfidfVectorizer  # noqa: F401
-    from sklearn.pipeline import Pipeline                  # noqa: F401
-    import pickle                                          # noqa: F401
+    import sklearn  # noqa: F401
     _SKLEARN_AVAILABLE = True
 except ImportError:
     _SKLEARN_AVAILABLE = False
@@ -136,14 +133,10 @@ class ClassificationResult:
         if self.confidence >= 0.65: return "MED"
         return "LOW"
 
-    @property
-    def is_certain(self) -> bool:
-        return self.confidence >= 0.75
-
 
 # ── Feature extractor for ML ─────────────────────────────────────────────────
 
-def _extract_text_features(path: Path) -> str:
+def extract_text_features(path: Path) -> str:
     """Produce a text bag-of-words representation of a file path."""
     parts: list[str] = []
     ext = path.suffix.lower().lstrip(".")
@@ -336,7 +329,7 @@ class SmartClassifier:
         if not _SKLEARN_AVAILABLE or self._ml_pipeline is None:
             return ClassificationResult(category="Others", confidence=0.05, layer="ml_model")
         try:
-            text  = _extract_text_features(path)
+            text  = extract_text_features(path)
             proba = self._ml_pipeline.predict_proba([text])[0]
             best  = int(proba.argmax())
             conf  = float(proba[best])

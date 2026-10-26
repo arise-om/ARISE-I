@@ -30,7 +30,6 @@ THEMES: dict[str, dict[str, str]] = {
         "RED":      "#D70015",
         "FG":       "#1d1d1f",
         "FG_DIM":   "#6e6e73",
-        "PANEL":    "#f0f0f2",
     },
     "dark": {
         "BG":       "#1c1c1e",
@@ -46,12 +45,9 @@ THEMES: dict[str, dict[str, str]] = {
         "RED":      "#FF453A",
         "FG":       "#f2f2f7",
         "FG_DIM":   "#98989f",
-        "PANEL":    "#2c2c2e",
     },
 }
 
-# PANEL is legacy and shares a value with SURFACE in the dark theme, so it
-# would make the old→new mapping ambiguous.
 RECOLOR_KEYS = ("BG", "SURFACE", "SIDEBAR", "HOVER", "BORDER", "ACCENT",
                 "ACCENT_D", "ACCENT_SOFT", "GREEN", "YELLOW", "RED", "FG", "FG_DIM")
 

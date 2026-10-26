@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from arise_i.constants import APP_DIR, REVIEW_FOLDER
+from arise_i.core.classifier import extract_text_features
 
 logger = logging.getLogger("arise_i.learning")
 
@@ -111,13 +112,11 @@ class LearningStore:
         confidence: model confidence at classification time
         layer     : classifier layer that made the decision
         """
-        from arise_i.core.classifier import _extract_text_features  # avoid circular at module level
-
         event: dict = {
             "ts":         datetime.now().isoformat(timespec="seconds"),
             "filename":   path.name,
             "extension":  path.suffix.lower(),
-            "features":   _extract_text_features(path),
+            "features":   extract_text_features(path),
             "predicted":  predicted,
             "confirmed":  confirmed,
             "confidence": round(confidence, 4),

@@ -35,7 +35,10 @@ build/
 dist/
 release/
 *.spec
+!packaging/*.spec
 *.egg-info/
 
 # Tooling caches
 .ruff_cache/
+coverage.xml
+htmlcov/
