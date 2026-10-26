@@ -169,6 +169,8 @@ class HealthMonitor:
 
     def _check_disk(self, path: Path) -> dict:
         """Warn if free disk space on the target volume drops below threshold."""
+        if not path.is_dir():
+            return {"ok": True, "skipped": "folder not found"}  # the GUI already says so
         try:
             usage = shutil.disk_usage(path)
             free  = usage.free

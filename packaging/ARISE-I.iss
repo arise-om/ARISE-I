@@ -2,9 +2,10 @@
 ; The release workflow compiles this after PyInstaller creates dist/ARISE-I/.
 
 #define AppName "ARISE-I"
-; The release workflow passes /DAppVersion=<tag>; this is the local fallback.
+; Pass the version on the command line: ISCC /DAppVersion=2.2.0 packaging\ARISE-I.iss
+; (the release workflow takes it from the git tag or arise_i/__init__.py).
 #ifndef AppVersion
-  #define AppVersion "2.1.0"
+  #error AppVersion is not defined - run ISCC with /DAppVersion=<version>
 #endif
 #define AppPublisher "Ironlabs"
 #define AppURL "https://github.com/arise-om/ARISE-I"
@@ -26,6 +27,9 @@ Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\{#AppExeName}
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+PrivilegesRequiredOverridesAllowed=dialog
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"

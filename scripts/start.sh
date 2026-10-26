@@ -1,12 +1,15 @@
 #!/bin/bash
-# ARISE-I Quick Start Launcher
-# Simply run this script to launch ARISE-I
+# ARISE-I launcher for Linux/macOS: starts the app, installing it first if needed.
 
-# Check if ARISE-I is installed
-if command -v arise-i-gui &> /dev/null; then
-    arise-i-gui
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    GUI="$HOME/Library/Application Support/ARISE-I/venv/bin/arise-i-gui"
 else
-    echo "ARISE-I is not installed yet. Running installer..."
-    echo ""
-    bash "$(dirname "$0")/install.sh"
+    GUI="${XDG_DATA_HOME:-$HOME/.local/share}/arise-i/venv/bin/arise-i-gui"
 fi
+
+if [ ! -x "$GUI" ]; then
+    echo "ARISE-I is not installed yet. Running the installer..."
+    echo ""
+    bash "$(dirname "$0")/install.sh" || exit 1
+fi
+exec "$GUI" "$@"

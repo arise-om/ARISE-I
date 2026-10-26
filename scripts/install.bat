@@ -1,7 +1,8 @@
-
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 title ARISE-I Installer
+REM ARISE-I source installer for Windows.
+REM Most people should use the ARISE-I-Setup installer from GitHub Releases.
 
 echo ========================================
 echo       ARISE-I Source Installer
@@ -9,176 +10,106 @@ echo ========================================
 echo.
 
 REM ----------------------------------------
-REM 1. Check Python installation
+REM 1. Python 3.10+
 REM ----------------------------------------
-echo [INFO] Checking Python installation...
-
 where python >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Python was not found in PATH.
-    echo Install Python 3.10 or newer:
-    echo https://www.python.org/downloads/windows/
-    pause
-    exit /b 1
+    echo Install Python 3.10 or newer from https://www.python.org/downloads/windows/
+    echo and tick "Add python.exe to PATH" in the installer.
+    goto :finish_error
 )
 
-python --version
-echo.
-
-REM ----------------------------------------
-REM 2. Check Python version
-REM ----------------------------------------
 python -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)"
 if errorlevel 1 (
     echo [ERROR] Python 3.10 or newer is required.
-    pause
-    exit /b 1
-)
-
-echo [OK] Python version is supported.
-echo.
-
-REM ----------------------------------------
-REM 3. Check pip
-REM ----------------------------------------
-echo [INFO] Checking pip...
-
-python -m pip --version
-if errorlevel 1 (
-    echo [WARNING] pip is unavailable. Attempting repair...
-    python -m ensurepip --upgrade
-    if errorlevel 1 (
-        echo [ERROR] Could not initialize pip.
-        pause
-        exit /b 1
-    )
-)
-
-echo.
-
-REM ----------------------------------------
-REM 4. Install ARISE-I and dependencies
-REM ----------------------------------------
-echo [INFO] Installing ARISE-I and dependencies...
-
-pushd "%~dp0.."
-if errorlevel 1 (
-    echo [ERROR] Could not open the project directory.
-    pause
-    exit /b 1
-)
-
-python -m pip install .
-if errorlevel 1 (
-    echo [ERROR] Installation failed.
-    popd
-    pause
-    exit /b 1
-)
-
-popd
-
-echo.
-echo [OK] ARISE-I installed successfully.
-echo.
-
-REM ----------------------------------------
-REM 5. Locate the active Python Scripts directory
-REM ----------------------------------------
-echo [INFO] Locating the GUI launcher...
-
-for /f "delims=" %%i in ('python -c "import sysconfig; print(sysconfig.get_path('scripts'))"') do set "SCRIPTS_DIR=%%i"
-
-if not defined SCRIPTS_DIR (
-    echo [ERROR] Could not determine the Scripts directory.
+    python --version
     goto :finish_error
 )
-
-set "GUI_EXE=%SCRIPTS_DIR%\arise-i-gui.exe"
+for /f "delims=" %%v in ('python --version') do echo [OK] %%v
 
 REM ----------------------------------------
-REM 6. Repair installation if launcher is missing
+REM 2. Private virtual environment
 REM ----------------------------------------
-if not exist "%GUI_EXE%" (
-    echo [WARNING] GUI launcher not found.
-    echo [INFO] Reinstalling ARISE-I...
+REM ARISE-I gets its own venv so it never changes your global Python packages.
+for %%I in ("%~dp0..") do set "PROJECT_DIR=%%~fI"
+set "INSTALL_ROOT=%LOCALAPPDATA%\ARISE-I"
+set "VENV_DIR=%INSTALL_ROOT%\venv"
 
-    pushd "%~dp0.."
-    python -m pip install --force-reinstall .
-    set "INSTALL_RESULT=%errorlevel%"
-    popd
-
-    if not "%INSTALL_RESULT%"=="0" (
-        echo [ERROR] Reinstallation failed.
+echo [INFO] Installing into "%INSTALL_ROOT%"...
+if not exist "%VENV_DIR%\Scripts\python.exe" (
+    python -m venv "%VENV_DIR%"
+    if errorlevel 1 (
+        echo [ERROR] Could not create a virtual environment.
         goto :finish_error
     )
 )
+set "VPY=%VENV_DIR%\Scripts\python.exe"
 
-if not exist "%GUI_EXE%" (
-    echo [ERROR] GUI launcher was not created.
-    echo Expected: "%GUI_EXE%"
+"%VPY%" -m pip install --upgrade pip -q
+if errorlevel 1 (
+    echo [ERROR] Could not update pip in the virtual environment.
     goto :finish_error
 )
 
-echo [OK] GUI launcher found:
-echo "%GUI_EXE%"
+REM ----------------------------------------
+REM 3. AI extras (optional)
+REM ----------------------------------------
 echo.
+echo AI Smart-Classification (optional)
+echo   Byte-level type detection and a local model that learns from your
+echo   corrections. Adds about 60 MB (scikit-learn + filetype).
+set "AI_ANSWER=N"
+set /p "AI_ANSWER=  Install AI extras? [y/N] "
+set "TARGET=%PROJECT_DIR%"
+if /i "!AI_ANSWER!"=="y"   set "TARGET=%PROJECT_DIR%[ai]"
+if /i "!AI_ANSWER!"=="yes" set "TARGET=%PROJECT_DIR%[ai]"
+
+echo.
+echo [INFO] Installing ARISE-I...
+"%VPY%" -m pip install "!TARGET!" -q
+if errorlevel 1 (
+    echo [ERROR] Installation failed. See the messages above.
+    goto :finish_error
+)
+
+set "GUI_EXE=%VENV_DIR%\Scripts\arise-i-gui.exe"
+if not exist "%GUI_EXE%" (
+    echo [ERROR] GUI launcher was not created: "%GUI_EXE%"
+    goto :finish_error
+)
+echo [OK] ARISE-I installed.
 
 REM ----------------------------------------
-REM 7. Create and verify desktop shortcut
+REM 4. Desktop and Start-menu shortcuts
 REM ----------------------------------------
-echo [INFO] Detecting the actual Windows Desktop...
-
 set "ARISE_GUI=%GUI_EXE%"
-set "ARISE_WORKDIR=%USERPROFILE%"
-
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
  "$ErrorActionPreference = 'Stop';" ^
- "$desktop = [Environment]::GetFolderPath('Desktop');" ^
- "if ([string]::IsNullOrWhiteSpace($desktop)) { throw 'Windows Desktop path could not be determined.' };" ^
- "if (!(Test-Path -LiteralPath $desktop)) { New-Item -ItemType Directory -Path $desktop -Force | Out-Null };" ^
- "$target = $env:ARISE_GUI;" ^
- "if (!(Test-Path -LiteralPath $target)) { throw ('GUI executable not found: ' + $target) };" ^
- "$link = Join-Path $desktop 'ARISE-I.lnk';" ^
  "$ws = New-Object -ComObject WScript.Shell;" ^
- "$shortcut = $ws.CreateShortcut($link);" ^
- "$shortcut.TargetPath = $target;" ^
- "$shortcut.WorkingDirectory = $env:ARISE_WORKDIR;" ^
- "$shortcut.Description = 'ARISE-I File Organizer';" ^
- "$shortcut.Save();" ^
- "if (!(Test-Path -LiteralPath $link)) { throw ('Shortcut creation failed: ' + $link) };" ^
- "Write-Output '[OK] Desktop shortcut created and verified:';" ^
- "Write-Output $link;"
-
+ "foreach ($dir in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) {" ^
+ "  if ([string]::IsNullOrWhiteSpace($dir)) { continue };" ^
+ "  $s = $ws.CreateShortcut((Join-Path $dir 'ARISE-I.lnk'));" ^
+ "  $s.TargetPath = $env:ARISE_GUI;" ^
+ "  $s.WorkingDirectory = $env:USERPROFILE;" ^
+ "  $s.Description = 'ARISE-I File Organizer';" ^
+ "  $s.Save() }"
 if errorlevel 1 (
-    echo [ERROR] Could not create the desktop shortcut.
-    echo.
-    echo GUI executable:
-    echo "%GUI_EXE%"
-    echo.
-    echo You can launch the GUI directly using that executable.
-    goto :finish_error
+    echo [WARNING] Could not create shortcuts. Launch ARISE-I with:
+    echo   "%GUI_EXE%"
+) else (
+    echo [OK] Desktop and Start-menu shortcuts created.
 )
 
 echo.
-echo [OK] Desktop shortcut created.
-echo.
-
-REM ----------------------------------------
-REM 8. Installation complete
-REM ----------------------------------------
 echo ========================================
-echo       Installation Completed
+echo       Installation complete
 echo ========================================
 echo.
-echo Launch ARISE-I using the desktop shortcut.
+echo   GUI:  double-click the ARISE-I shortcut, or run scripts\start.bat
+echo   CLI:  "%VENV_DIR%\Scripts\arise-i.exe" --help
 echo.
-echo CLI help:
-echo   arise-i --help
-echo.
-echo IMPORTANT:
-echo Test on a sample folder first.
-echo Preview file changes before organizing.
+echo Tip: click Preview first to see what would move.
 echo.
 pause
 endlocal
@@ -187,9 +118,8 @@ exit /b 0
 :finish_error
 echo.
 echo ========================================
-echo       Installation Incomplete
+echo       Installation incomplete
 echo ========================================
-echo.
 echo Review the error messages above.
 echo.
 pause

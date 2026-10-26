@@ -1822,7 +1822,20 @@ def _enable_hidpi() -> None:
             pass
 
 
+def _self_test() -> int:
+    """Report what this build can do, without opening a window (CI smoke test)."""
+    from arise_i.core import classifier
+    print(f"ARISE-I {__version__}")
+    print(f"  watchdog : {'yes' if WATCHDOG_AVAILABLE else 'no'}")
+    print(f"  sklearn  : {'yes' if classifier._SKLEARN_AVAILABLE else 'no'}")
+    print(f"  filetype : {'yes' if classifier._FILETYPE_AVAILABLE else 'no'}")
+    print(f"  tk       : {tk.TkVersion}")
+    return 0 if WATCHDOG_AVAILABLE else 1
+
+
 def main():
+    if "--self-test" in sys.argv[1:]:
+        sys.exit(_self_test())
     _enable_hidpi()
     app = AriseIApp()
     app.mainloop()
