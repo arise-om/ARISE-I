@@ -1,0 +1,177 @@
+{
+  "_comment": "Shared by tests/test_golden.py and android/engine ClassifierParityTest. 'expect' is where a live run leaves the file, relative to the organised folder. Names must be legal on Windows too (no trailing dots), since the Python suite runs there.",
+  "preexisting": [
+    "PDFs/dup.pdf"
+  ],
+  "cases": [
+    {
+      "name": "report.pdf",
+      "expect": "PDFs/report.pdf"
+    },
+    {
+      "name": "Photo.JPG",
+      "expect": "Images/Photo.JPG"
+    },
+    {
+      "name": "song.mp3",
+      "expect": "Music/song.mp3"
+    },
+    {
+      "name": "archive.tar.gz",
+      "expect": "Archives/archive.tar.gz"
+    },
+    {
+      "name": "readme.txt",
+      "expect": "Documents/readme.txt"
+    },
+    {
+      "name": "budget.xlsx",
+      "expect": "Spreadsheets/budget.xlsx"
+    },
+    {
+      "name": "slides.pptx",
+      "expect": "Presentations/slides.pptx"
+    },
+    {
+      "name": "album cover.png",
+      "expect": "Images/album cover.png"
+    },
+    {
+      "name": "font pack.zip",
+      "expect": "Archives/font pack.zip"
+    },
+    {
+      "name": "IMG_20240101.heic",
+      "expect": "Images/IMG_20240101.heic"
+    },
+    {
+      "name": "clip.mpeg",
+      "expect": "Videos/clip.mpeg"
+    },
+    {
+      "name": "page.htm",
+      "expect": "Code/page.htm"
+    },
+    {
+      "name": "notes.weird",
+      "expect": "Documents/notes.weird"
+    },
+    {
+      "name": "wallpaper.xyzzy",
+      "expect": "Images/wallpaper.xyzzy"
+    },
+    {
+      "name": "data.unknownext",
+      "expect": "__Review__/data.unknownext"
+    },
+    {
+      "name": "Assignment 1 - Calculus.pdf",
+      "expect": "Calculus/Assignment 1/PDFs/Assignment 1 - Calculus.pdf"
+    },
+    {
+      "name": "Math - Assignment 4.docx",
+      "expect": "Math/Assignment 4/Documents/Math - Assignment 4.docx"
+    },
+    {
+      "name": "Lab Report 2 - chemistry.pdf",
+      "expect": "Chemistry/Lab Report 2/PDFs/Lab Report 2 - chemistry.pdf"
+    },
+    {
+      "name": "Project 1 - physics.zip",
+      "expect": "Physics/Project 1/Archives/Project 1 - physics.zip"
+    },
+    {
+      "name": "lab3 - biology notes.txt",
+      "expect": "Biology Notes/Lab 3/Documents/lab3 - biology notes.txt"
+    },
+    {
+      "name": "Assignment 2 - économie.pdf",
+      "expect": "Économie/Assignment 2/PDFs/Assignment 2 - économie.pdf"
+    },
+    {
+      "name": "Assignment 3.pdf",
+      "expect": "__Review__/Assignment 3.pdf"
+    },
+    {
+      "name": "lab 5",
+      "expect": "__Review__/lab 5"
+    },
+    {
+      "name": "Screenshot 2024-01-01",
+      "expect": "Images/Screenshot 2024-01-01"
+    },
+    {
+      "name": "IMG_20240101",
+      "expect": "Images/IMG_20240101"
+    },
+    {
+      "name": "invoice_march",
+      "expect": "Documents/invoice_march"
+    },
+    {
+      "name": "resume",
+      "expect": "Documents/resume"
+    },
+    {
+      "name": "CV",
+      "expect": "Documents/CV"
+    },
+    {
+      "name": "lecture notes",
+      "expect": "Documents/lecture notes"
+    },
+    {
+      "name": "setup_2",
+      "expect": "Installers/setup_2"
+    },
+    {
+      "name": "ebook-guide",
+      "expect": "Ebooks/ebook-guide"
+    },
+    {
+      "name": "tutorial part 1",
+      "expect": "Videos/tutorial part 1"
+    },
+    {
+      "name": "mystery",
+      "expect": "__Review__/mystery"
+    },
+    {
+      "name": "Résumé final",
+      "expect": "__Review__/Résumé final"
+    },
+    {
+      "name": ".hidden",
+      "expect": ".hidden"
+    },
+    {
+      "name": "desktop.ini",
+      "expect": "desktop.ini"
+    },
+    {
+      "name": "Thumbs.db",
+      "expect": "Thumbs.db"
+    },
+    {
+      "name": "~$draft.docx",
+      "expect": "~$draft.docx"
+    },
+    {
+      "name": "movie.mp4.crdownload",
+      "expect": "movie.mp4.crdownload"
+    },
+    {
+      "name": "big.part",
+      "expect": "big.part"
+    },
+    {
+      "name": "arise-i.log",
+      "expect": "arise-i.log"
+    },
+    {
+      "name": "dup.pdf",
+      "expect": "PDFs/dup (1).pdf",
+      "renamed_to": "dup (1).pdf"
+    }
+  ]
+}

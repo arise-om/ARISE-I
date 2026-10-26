@@ -1,0 +1,89 @@
+name: Android
+
+on:
+  push:
+    paths:
+      - "android/**"
+      - "scripts/export_rules.py"
+      - "tests/fixtures/**"
+      - "classifier.py"
+      - "assignment_classifier.py"
+      - "file_organizer.py"
+      - "pyproject.toml"
+      - ".github/workflows/android.yml"
+  pull_request:
+    paths:
+      - "android/**"
+      - "scripts/export_rules.py"
+      - "tests/fixtures/**"
+      - "classifier.py"
+      - "assignment_classifier.py"
+      - "file_organizer.py"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  engine:
+    name: Engine (JVM tests + rules parity)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Rules export is up to date
+        run: |
+          pip install pyyaml
+          python scripts/export_rules.py --check
+      - name: Engine tests (golden parity, crash safety, learning)
+        run: android/gradlew -p android/engine test --console=plain
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: engine-test-report
+          path: android/engine/build/reports/tests
+
+  app:
+    name: App (lint + APK)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Lint and build
+        working-directory: android
+        run: ./gradlew --continue :app:assembleDebug :app:assembleRelease :app:lintDebug --console=plain
+      - name: APK size budget (12 MB)
+        run: |
+          apk=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
+          size=$(stat -c %s "$apk")
+          echo "release APK: $apk is $((size / 1024)) KiB"
+          test "$size" -le $((12 * 1024 * 1024))
+      - name: No network permission
+        run: |
+          set -e
+          aapt=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          apk=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
+          if "$aapt" dump permissions "$apk" | grep -q "android.permission.INTERNET"; then
+            echo "INTERNET permission found in the APK"; exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ARISE-I-Android-debug
+          path: android/app/build/outputs/apk/debug/*.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lint-report
+          path: android/app/build/reports/lint-results-debug.html
