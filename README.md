@@ -64,6 +64,10 @@ pip install arise-i[ai]
 pip install scikit-learn filetype
 ```
 
+### Android
+
+Download `ARISE-I-Android.apk` from the latest release — same rules, Plan-before-move, swipeable Review queue, undo for every file, and auto-sort in the background. See [docs/ANDROID.md](docs/ANDROID.md).
+
 ### Windows
 
 ```bat
@@ -192,7 +196,7 @@ def classify(path: Path) -> str | None:
 | **ML model** | TF-IDF + Multinomial Naive Bayes, trained locally |
 | **Storage** | `~/.arise-i/` — feedback log, model pickle, prefs |
 | **Privacy** | 100 % local — no network requests, ever |
-| **Platforms** | Linux, macOS, Windows |
+| **Platforms** | Linux, macOS, Windows, Android 8+ ([docs/ANDROID.md](docs/ANDROID.md)) |
 
 ---
 
