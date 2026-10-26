@@ -21,7 +21,6 @@ Requires:
     pip install watchdog
 """
 
-import argparse
 import os
 import sys
 import threading
@@ -48,8 +47,7 @@ except ImportError:
 from arise_i.core.organizer import (
     Color,
     Stats,
-    boot_sequence,
-    load_categories,
+    is_protected_dir,
     organize_folder,
     skip_reason,
 )
@@ -232,6 +230,9 @@ def watch_folder(
     if not target_path.is_dir():
         print(f"{Color.RED}✗ Path is not a directory: {target_path}{Color.RESET}")
         return
+    if is_protected_dir(target_path):
+        print(f"{Color.RED}✗ Refusing to watch a drive root or home folder: {target_path}{Color.RESET}")
+        return
 
     mode_note = (
         f"{Color.YELLOW}[SIMULATION — files will NOT be moved]{Color.RESET}"
@@ -300,50 +301,7 @@ def watch_folder(
 # Standalone entry point
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
-    if not WATCHDOG_AVAILABLE:
-        print(
-            "\n[ARISE-I] ✗  watchdog is not installed.\n"
-            "           Run:  pip install watchdog\n"
-            "           Then re-run ARISE-I watch mode.\n"
-        )
-        sys.exit(1)
-
-    parser = argparse.ArgumentParser(
-        description="ARISE-I Watch-Folder Daemon — sorts files as they arrive.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python -m arise_i.core.watcher                           # watch ~/Downloads (live)
-  python -m arise_i.core.watcher --dry-run                 # preview only
-  python -m arise_i.core.watcher --path ~/Desktop          # custom folder
-  python -m arise_i.core.watcher --debounce 5              # wait 5s of quiet
-  python -m arise_i.core.watcher --config my.config.yaml   # custom categories
-        """,
-    )
-    parser.add_argument(
-        "--path", default="~/Downloads",
-        help="Folder to watch (default: ~/Downloads)",
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true",
-        help="Preview what would happen without moving anything",
-    )
-    parser.add_argument(
-        "--debounce", type=float, default=DEFAULT_DEBOUNCE,
-        help=f"Seconds of FS quiet before triggering sort (default: {DEFAULT_DEBOUNCE})",
-    )
-    parser.add_argument(
-        "--config", default=None, type=Path,
-        help="Path to a arise-i.config.yaml for custom category mappings",
-    )
-    args = parser.parse_args()
-
-    boot_sequence(dry_run=args.dry_run)
-    categories = load_categories(args.config, args.path)
-    watch_folder(
-        target_dir=args.path,
-        debounce=args.debounce,
-        dry_run=args.dry_run,
-        categories=categories,
-    )
+if __name__ == "__main__":  # pragma: no cover
+    # Same as `arise-i --watch ...`, so plugins and the learning store load too
+    from arise_i.core.organizer import main
+    sys.exit(main(["--watch", *sys.argv[1:]]))

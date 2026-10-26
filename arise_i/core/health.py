@@ -36,6 +36,7 @@ CHECK_INTERVAL_S      = 60          # seconds between health scans
 DISK_WARN_BYTES       = 500 * 1024 * 1024   # 500 MB
 ORPHAN_MAX_DAYS       = 7           # days before Review files are flagged as stale
 DRIFT_WARN_RATE       = 0.30        # correction rate above which to warn
+DRIFT_MIN_NEW_EVENTS  = 10          # fresh feedback needed before another drift retrain
 HEALTH_FILE           = APP_DIR / "health.json"
 
 # ── Sentinel messages understood by the GUI log parser ────────────────────────
@@ -223,10 +224,11 @@ class HealthMonitor:
         try:
             rate  = self._learning_store.correction_rate()
             total = self._learning_store.total_events()
-            # Retraining only helps when new feedback has arrived since the
-            # last drift retrain; otherwise the same model would be rebuilt
-            # (and the same alert shown) every check cycle forever.
-            has_new_data = self._drift_retrain_at is None or total > self._drift_retrain_at
+            # Retraining only helps once a meaningful amount of new feedback
+            # has arrived since the last drift retrain; otherwise the model
+            # would be rebuilt (and the alert shown) almost every cycle.
+            has_new_data = (self._drift_retrain_at is None
+                            or total >= self._drift_retrain_at + DRIFT_MIN_NEW_EVENTS)
             if total >= 30 and rate >= DRIFT_WARN_RATE and has_new_data:
                 self._drift_retrain_at = total
                 self._emit(
@@ -249,9 +251,10 @@ class HealthMonitor:
         if self._learning_store is None:
             return
         try:
-            success = self._learning_store.retrain()
-            if success and self._classifier is not None:
-                self._classifier.reload_model()
+            if self._learning_store.retrain():
+                # Shared classifiers also pick up the new model.pkl by mtime
+                if self._classifier is not None:
+                    self._classifier.reload_model()
                 self._emit("🧠  Model retrained successfully — classifier updated.", warn=False)
         except Exception as exc:
             logger.error("Retrain in health monitor failed: %s", exc)

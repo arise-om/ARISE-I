@@ -48,7 +48,8 @@ _ASSIGNMENT_TYPES = ["lab report", "assignment", "project", "lab"]
 # e.g. "Assignment 1 - Calculus", "Lab3 - Biology"
 _PATTERNS_TYPE_FIRST: list[re.Pattern[str]] = [
     re.compile(
-        rf"(?P<type>{kw})\s*(?P<num>\d+)\s*[-–—]\s*(?P<subject>.+)",
+        # A second " - " ends the subject: "… - Calculus - Solutions"
+        rf"(?P<type>{kw})\s*(?P<num>\d+)\s*[-–—]\s*(?P<subject>.+?)(?:\s+[-–—]\s+.*)?$",
         re.IGNORECASE,
     )
     for kw in _ASSIGNMENT_TYPES
@@ -75,6 +76,9 @@ _PATTERNS_NO_SUBJECT: list[re.Pattern[str]] = [
 ]
 
 
+_COPY_SUFFIX = re.compile(r"\s*\(\d+\)$")
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 
 def parse_assignment(path: Path) -> Optional[AssignmentInfo]:
@@ -91,7 +95,9 @@ def parse_assignment(path: Path) -> Optional[AssignmentInfo]:
         Parsed metadata if the filename matches an assignment pattern,
         otherwise ``None`` (the file is not an assignment).
     """
-    stem = path.stem.strip()
+    # Browsers and ARISE-I itself add " (1)" to duplicate copies; without
+    # stripping it, "Lab 2 - Bio (1)" would file under a "Bio (1)" subject.
+    stem = _COPY_SUFFIX.sub("", path.stem).strip()
 
     # Group 1 — type-first patterns (highest confidence: most explicit)
     for pattern in _PATTERNS_TYPE_FIRST:

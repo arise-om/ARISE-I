@@ -18,6 +18,8 @@ Keys used by the GUI:
 import json
 import logging
 import os
+import tempfile
+import threading
 from pathlib import Path
 
 from arise_i.constants import APP_DIR
@@ -37,6 +39,21 @@ _DEFAULTS: dict = {
     "animations":      True,
 }
 
+# Serialises read-modify-write updates from the GUI and its worker threads
+_LOCK = threading.RLock()
+
+
+def _valid(key: str, value) -> bool:
+    """True if *value* has the type the app expects for a known *key*."""
+    default = _DEFAULTS.get(key)
+    if default is None:
+        return True  # unknown keys are kept as-is
+    if isinstance(default, bool):
+        return isinstance(value, bool)
+    if isinstance(default, float):
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return isinstance(value, type(default))
+
 
 def load_prefs() -> dict:
     """Load preferences from disk, merging with defaults for any missing keys.
@@ -49,7 +66,11 @@ def load_prefs() -> dict:
             with open(PREFS_FILE, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
             if isinstance(data, dict):
-                prefs.update(data)
+                for key, value in data.items():
+                    if _valid(key, value):
+                        prefs[key] = value
+                    else:
+                        logger.warning("Ignoring invalid pref %s=%r", key, value)
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("Could not load prefs: %s — using defaults.", exc)
     return prefs
@@ -61,23 +82,33 @@ def save_prefs(data: dict) -> None:
     Creates the directory if it doesn't exist.
     Never raises — a failed save is logged but never crashes the app.
     """
+    tmp = None
     try:
-        PREFS_DIR.mkdir(parents=True, exist_ok=True)
-        tmp = PREFS_FILE.with_suffix(".tmp")
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=2)
-            fh.flush()
-            os.fsync(fh.fileno())
-        tmp.replace(PREFS_FILE)
+        with _LOCK:
+            PREFS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=PREFS_FILE.parent, prefix=".prefs-", suffix=".tmp")
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, PREFS_FILE)
+            tmp = None
     except Exception as exc:
         logger.warning("Could not save prefs: %s", exc)
+    finally:
+        if tmp is not None:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 
 def set_pref(key: str, value) -> None:
     """Update a single preference key and save immediately."""
-    prefs = load_prefs()
-    prefs[key] = value
-    save_prefs(prefs)
+    with _LOCK:
+        prefs = load_prefs()
+        prefs[key] = value
+        save_prefs(prefs)
 
 
 def get_pref(key: str, default=None):

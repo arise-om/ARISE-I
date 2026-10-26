@@ -134,15 +134,19 @@ class LearningStore:
             logger.warning("Could not write feedback event: %s", exc)
             return
 
-        self._session_events += 1
+        with _LOCK:
+            self._session_events += 1
+            due = _SKLEARN_AVAILABLE and self._session_events >= self._retrain_threshold
+            if due:
+                self._session_events = 0
 
         # Auto-retrain when threshold is hit.  The session counter is checked
-        # first so the whole log isn't re-read after every single file.
-        if _SKLEARN_AVAILABLE and self._session_events >= self._retrain_threshold:
-            if self.total_events() >= MIN_SAMPLES:
-                logger.info("Auto-retrain triggered (%d session events)", self._session_events)
-                self.retrain()
-                self._session_events = 0
+        # first so the whole log isn't re-read after every single file, and
+        # training runs in the background so it never stalls a sort.
+        if due and self.total_events() >= MIN_SAMPLES:
+            logger.info("Auto-retrain triggered (%d events)", self._retrain_threshold)
+            threading.Thread(target=self.retrain, daemon=True,
+                             name="arise-i-retrain").start()
 
     def retrain(self, force: bool = False) -> bool:
         """Retrain the sklearn model from the full feedback log.
@@ -208,7 +212,7 @@ class LearningStore:
 
             model_data = {
                 "pipeline":   pipeline,
-                "labels":     sorted(set(labels_f)),
+                "labels":     [str(c) for c in pipeline.classes_],
                 "trained_on": len(pairs),
                 "accuracy":   accuracy,
                 "timestamp":  datetime.now().isoformat(timespec="seconds"),

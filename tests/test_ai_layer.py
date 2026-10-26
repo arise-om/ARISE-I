@@ -174,7 +174,11 @@ class TestHealthMonitor:
             hm._check_drift()
         assert len(spawned) == 1
 
-        store.events += 5            # new feedback arrived
+        store.events += 1            # a single new event isn't worth a retrain
+        hm._check_drift()
+        assert len(spawned) == 1
+
+        store.events += health_monitor.DRIFT_MIN_NEW_EVENTS   # enough new feedback
         hm._check_drift()
         assert len(spawned) == 2
 

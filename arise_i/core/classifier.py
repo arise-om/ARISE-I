@@ -99,18 +99,29 @@ from arise_i.core.assignment import AssignmentInfo, parse_assignment  # noqa: E4
 
 # ── Filename heuristics ──────────────────────────────────────────────────────
 
+def _words(pattern: str) -> re.Pattern:
+    """Match *pattern* only as a whole word inside a filename.
+
+    ``\\b`` treats ``_`` as a word character, so it would miss the
+    ``notes`` in ``lecture_notes``; letters are the only thing that may not
+    touch the match.  This keeps ``blog_post`` out of Music (``ost``) and
+    ``keynote`` out of Documents (``note``).
+    """
+    return re.compile(rf"(?<![a-z])(?:{pattern})(?![a-z])", re.I)
+
+
 _HEURISTICS: list[tuple[re.Pattern, str, float]] = [
-    (re.compile(r'screenshot|screen.?cap|screen.?grab', re.I), "Images",     0.82),
-    (re.compile(r'\b(IMG|DSC|DCIM|PHOTO)[-_]\d{4,}',   re.I), "Images",     0.80),
-    (re.compile(r'wallpaper|background|avatar',          re.I), "Images",     0.78),
-    (re.compile(r'invoice|receipt|statement|billing',    re.I), "Documents",  0.84),
-    (re.compile(r'resume|curriculum.?vitae|\bcv\b',      re.I), "Documents",  0.88),
-    (re.compile(r'lecture|notes?',                        re.I), "Documents",  0.76),
-    (re.compile(r'setup[-_ v]\d|installer[-_ ]',         re.I), "Installers", 0.80),
-    (re.compile(r'\bebook\b|e-book',                     re.I), "Ebooks",     0.82),
-    (re.compile(r'soundtrack|ost\b|playlist|album',      re.I), "Music",      0.78),
-    (re.compile(r'tutorial|walkthrough|gameplay|playthrough', re.I), "Videos", 0.76),
-    (re.compile(r'\bfonts?\b|typeface',                  re.I), "Fonts",      0.82),
+    (_words(r'screenshot|screen.?cap|screen.?grab'),           "Images",     0.82),
+    (re.compile(r'\b(IMG|DSC|DCIM|PHOTO)[-_]\d{4,}', re.I),   "Images",     0.80),
+    (_words(r'wallpapers?|backgrounds?|avatars?'),              "Images",     0.78),
+    (_words(r'invoices?|receipts?|statements?|billing'),        "Documents",  0.84),
+    (_words(r'resume|curriculum.?vitae|cv'),                    "Documents",  0.88),
+    (_words(r'lectures?|notes?'),                               "Documents",  0.76),
+    (re.compile(r'setup[-_ v]\d|installer[-_ ]', re.I),        "Installers", 0.80),
+    (_words(r'ebooks?|e-books?'),                               "Ebooks",     0.82),
+    (_words(r'soundtracks?|ost|playlists?|albums?'),            "Music",      0.78),
+    (_words(r'tutorials?|walkthroughs?|gameplay|playthroughs?'), "Videos",    0.76),
+    (_words(r'fonts?|typefaces?'),                              "Fonts",      0.82),
 ]
 
 
@@ -331,15 +342,17 @@ class SmartClassifier:
         try:
             text  = extract_text_features(path)
             proba = self._ml_pipeline.predict_proba([text])[0]
+            # predict_proba columns follow the pipeline's own class order
+            labels = [str(c) for c in getattr(self._ml_pipeline, "classes_", self._ml_labels)]
             best  = int(proba.argmax())
             conf  = float(proba[best])
-            cat   = self._ml_labels[best]
+            cat   = labels[best]
             if cat == self.REVIEW_FOLDER or cat not in self.categories:
                 # Models trained before v2.1 could learn the Review quarantine
                 # as a label, and a config change can remove a category.
                 return ClassificationResult(category="Others", confidence=0.05, layer="ml_model")
             alts  = sorted(
-                [(self._ml_labels[i], float(proba[i]))
+                [(labels[i], float(proba[i]))
                  for i in range(len(proba)) if i != best],
                 key=lambda x: -x[1],
             )[:3]
