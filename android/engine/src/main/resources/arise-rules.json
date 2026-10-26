@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "engine_version": "2.1.0",
+  "engine_version": "2.2.0",
   "review_folder": "__Review__",
   "fallback_category": "Others",
   "confidence_threshold": 0.75,
@@ -226,7 +226,7 @@
   ],
   "heuristics": [
     {
-      "pattern": "screenshot|screen.?cap|screen.?grab",
+      "pattern": "(?<![a-z])(?:screenshot|screen.?cap|screen.?grab)(?![a-z])",
       "flags": "i",
       "category": "Images",
       "confidence": 0.82
@@ -238,25 +238,25 @@
       "confidence": 0.8
     },
     {
-      "pattern": "wallpaper|background|avatar",
+      "pattern": "(?<![a-z])(?:wallpapers?|backgrounds?|avatars?)(?![a-z])",
       "flags": "i",
       "category": "Images",
       "confidence": 0.78
     },
     {
-      "pattern": "invoice|receipt|statement|billing",
+      "pattern": "(?<![a-z])(?:invoices?|receipts?|statements?|billing)(?![a-z])",
       "flags": "i",
       "category": "Documents",
       "confidence": 0.84
     },
     {
-      "pattern": "resume|curriculum.?vitae|\\bcv\\b",
+      "pattern": "(?<![a-z])(?:resume|curriculum.?vitae|cv)(?![a-z])",
       "flags": "i",
       "category": "Documents",
       "confidence": 0.88
     },
     {
-      "pattern": "lecture|notes?",
+      "pattern": "(?<![a-z])(?:lectures?|notes?)(?![a-z])",
       "flags": "i",
       "category": "Documents",
       "confidence": 0.76
@@ -268,25 +268,25 @@
       "confidence": 0.8
     },
     {
-      "pattern": "\\bebook\\b|e-book",
+      "pattern": "(?<![a-z])(?:ebooks?|e-books?)(?![a-z])",
       "flags": "i",
       "category": "Ebooks",
       "confidence": 0.82
     },
     {
-      "pattern": "soundtrack|ost\\b|playlist|album",
+      "pattern": "(?<![a-z])(?:soundtracks?|ost|playlists?|albums?)(?![a-z])",
       "flags": "i",
       "category": "Music",
       "confidence": 0.78
     },
     {
-      "pattern": "tutorial|walkthrough|gameplay|playthrough",
+      "pattern": "(?<![a-z])(?:tutorials?|walkthroughs?|gameplay|playthroughs?)(?![a-z])",
       "flags": "i",
       "category": "Videos",
       "confidence": 0.76
     },
     {
-      "pattern": "\\bfonts?\\b|typeface",
+      "pattern": "(?<![a-z])(?:fonts?|typefaces?)(?![a-z])",
       "flags": "i",
       "category": "Fonts",
       "confidence": 0.82
@@ -300,10 +300,10 @@
       "lab"
     ],
     "type_first": [
-      "(?<type>lab report)\\s*(?<num>\\d+)\\s*[-–—]\\s*(?<subject>.+)",
-      "(?<type>assignment)\\s*(?<num>\\d+)\\s*[-–—]\\s*(?<subject>.+)",
-      "(?<type>project)\\s*(?<num>\\d+)\\s*[-–—]\\s*(?<subject>.+)",
-      "(?<type>lab)\\s*(?<num>\\d+)\\s*[-–—]\\s*(?<subject>.+)"
+      "(?<type>lab report)\\s*(?<num>\\d+)\\s*[-–—]\\s*(?<subject>.+?)(?:\\s+[-–—]\\s+.*)?$",
+      "(?<type>assignment)\\s*(?<num>\\d+)\\s*[-–—]\\s*(?<subject>.+?)(?:\\s+[-–—]\\s+.*)?$",
+      "(?<type>project)\\s*(?<num>\\d+)\\s*[-–—]\\s*(?<subject>.+?)(?:\\s+[-–—]\\s+.*)?$",
+      "(?<type>lab)\\s*(?<num>\\d+)\\s*[-–—]\\s*(?<subject>.+?)(?:\\s+[-–—]\\s+.*)?$"
     ],
     "subject_first": [
       "(?<subject>.+?)\\s*[-–—]\\s*(?<type>lab report)\\s*(?<num>\\d+)",
@@ -322,7 +322,8 @@
       "subject_first": 0.93,
       "no_subject": 0.8
     },
-    "subject_strip": " -–—_."
+    "subject_strip": " -–—_.",
+    "copy_suffix": "\\s*\\(\\d+\\)$"
   },
   "skip": {
     "own_files": [

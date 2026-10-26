@@ -27,18 +27,20 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+from arise_i.constants import APP_DIR, LOG_MANIFEST, REVIEW_FOLDER
+
 logger = logging.getLogger("arise_i.health")
 
 # ── Tunables ─────────────────────────────────────────────────────────────────
 CHECK_INTERVAL_S      = 60          # seconds between health scans
 DISK_WARN_BYTES       = 500 * 1024 * 1024   # 500 MB
-ORPHAN_MAX_DAYS       = 7           # days before Review files are re-classified
+ORPHAN_MAX_DAYS       = 7           # days before Review files are flagged as stale
 DRIFT_WARN_RATE       = 0.30        # correction rate above which to warn
-HEALTH_FILE           = Path.home() / ".arise-i" / "health.json"
+DRIFT_MIN_NEW_EVENTS  = 10          # fresh feedback needed before another drift retrain
+HEALTH_FILE           = APP_DIR / "health.json"
 
-# ── Sentinel messages understood by gui.py log parser ────────────────────────
+# ── Sentinel messages understood by the GUI log parser ────────────────────────
 MSG_HEALTH_WARN   = "__HEALTH_WARN__"
-MSG_HEALTH_OK     = "__HEALTH_OK__"
 MSG_HEALTH_RETRAIN = "__HEALTH_RETRAIN__"
 
 
@@ -138,14 +140,12 @@ class HealthMonitor:
 
     def _check_manifest(self) -> dict:
         """Validate all known ARISE-I manifests are readable JSON."""
-        arise_dir = Path.home() / ".arise-i"
         issues: list[str] = []
 
-        manifest_name = ".arise-i-log.json"
-        candidates = list(arise_dir.glob("**/" + manifest_name)) if arise_dir.exists() else []
-        # Also check target dir manifest
-        if self._target_dir and (self._target_dir / manifest_name).exists():
-            candidates.append(self._target_dir / manifest_name)
+        # Manifests live in each organised folder, next to the sorted files.
+        candidates: list[Path] = []
+        if self._target_dir and (self._target_dir / LOG_MANIFEST).exists():
+            candidates.append(self._target_dir / LOG_MANIFEST)
 
         for mf in candidates:
             try:
@@ -169,6 +169,8 @@ class HealthMonitor:
 
     def _check_disk(self, path: Path) -> dict:
         """Warn if free disk space on the target volume drops below threshold."""
+        if not path.is_dir():
+            return {"ok": True, "skipped": "folder not found"}  # the GUI already says so
         try:
             usage = shutil.disk_usage(path)
             free  = usage.free
@@ -191,7 +193,7 @@ class HealthMonitor:
         if self._target_dir is None:
             return {"ok": True, "waiting": 0}
 
-        review_dir = self._target_dir / "__Review__"
+        review_dir = self._target_dir / REVIEW_FOLDER
         if not review_dir.exists():
             return {"ok": True, "waiting": 0}
 
@@ -224,10 +226,11 @@ class HealthMonitor:
         try:
             rate  = self._learning_store.correction_rate()
             total = self._learning_store.total_events()
-            # Retraining only helps when new feedback has arrived since the
-            # last drift retrain; otherwise the same model would be rebuilt
-            # (and the same alert shown) every check cycle forever.
-            has_new_data = self._drift_retrain_at is None or total > self._drift_retrain_at
+            # Retraining only helps once a meaningful amount of new feedback
+            # has arrived since the last drift retrain; otherwise the model
+            # would be rebuilt (and the alert shown) almost every cycle.
+            has_new_data = (self._drift_retrain_at is None
+                            or total >= self._drift_retrain_at + DRIFT_MIN_NEW_EVENTS)
             if total >= 30 and rate >= DRIFT_WARN_RATE and has_new_data:
                 self._drift_retrain_at = total
                 self._emit(
@@ -250,9 +253,10 @@ class HealthMonitor:
         if self._learning_store is None:
             return
         try:
-            success = self._learning_store.retrain()
-            if success and self._classifier is not None:
-                self._classifier.reload_model()
+            if self._learning_store.retrain():
+                # Shared classifiers also pick up the new model.pkl by mtime
+                if self._classifier is not None:
+                    self._classifier.reload_model()
                 self._emit("🧠  Model retrained successfully — classifier updated.", warn=False)
         except Exception as exc:
             logger.error("Retrain in health monitor failed: %s", exc)

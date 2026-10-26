@@ -8,21 +8,25 @@ A polished Python CLI tool that automatically sorts files in a folder
 (like Downloads) into category folders based on file type.
 
 Usage:
-    python file_organizer.py --dry-run              # preview only, moves nothing
-    python file_organizer.py                         # actually organizes ~/Downloads
-    python file_organizer.py --path "/path/to/dir"  # custom folder
-    python file_organizer.py --undo                  # reverse the last run
-    python file_organizer.py --config my.config.yaml # custom category mappings
-    python file_organizer.py --watch                 # daemon: sort files as they arrive
-    python file_organizer.py --watch --debounce 3    # watch with custom debounce (seconds)
+    arise-i --dry-run              # preview only, moves nothing
+    arise-i                        # actually organizes ~/Downloads
+    arise-i --path "/path/to/dir"  # custom folder
+    arise-i --undo                 # reverse the last run
+    arise-i --config my.config.yaml # custom category mappings
+    arise-i --watch                # daemon: sort files as they arrive
+    arise-i --watch --debounce 3   # watch with custom debounce (seconds)
+
+``python -m arise_i`` is equivalent to ``arise-i``.
 """
 
 import argparse
+import glob
 import json
 import logging
 import os
 import shutil
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -39,36 +43,26 @@ if sys.version_info < (3, 10):  # pragma: no cover
     )
     sys.exit(1)
 
-import yaml  # PyYAML — only external dependency
+import yaml  # PyYAML
 
-__version__ = "2.1.0"
+from arise_i import __version__
+from arise_i.constants import CONFIG_FILENAME, LOG_FILE, LOG_MANIFEST, REVIEW_FOLDER
+from arise_i.core.classifier import SmartClassifier, get_classifier
+from arise_i.core.learning import LearningStore
+from arise_i.core.paths import sanitize_folder_name
+from arise_i.core.plugins import classify_with_plugins, load_plugins
+
+__all__ = ["__version__", "CONFIG_FILENAME", "LOG_FILE", "LOG_MANIFEST", "REVIEW_FOLDER"]
 
 # Keep ARISE-I's file logging isolated from an application's root logger.
 logger = logging.getLogger("arise_i")
 
-try:
-    from plugin_loader import ClassifierPlugin, classify_with_plugins, load_plugins
-    _PLUGINS_AVAILABLE = True
-except ImportError:  # pragma: no cover — only missing during isolated unit tests
-    _PLUGINS_AVAILABLE = False
-    ClassifierPlugin = None  # type: ignore[assignment,misc]
-    def classify_with_plugins(path, plugins): return None  # type: ignore[misc]
-    def load_plugins(plugin_dir=None): return []  # type: ignore[misc]
-
-try:
-    from classifier import SmartClassifier, get_classifier
-    _CLASSIFIER_AVAILABLE = True
-except ImportError:
-    _CLASSIFIER_AVAILABLE = False
-    SmartClassifier = None   # type: ignore[assignment,misc]
-    get_classifier  = None   # type: ignore[assignment,misc]
-
-try:
-    from learning_store import LearningStore
-    _LEARNING_AVAILABLE = True
-except ImportError:
-    _LEARNING_AVAILABLE = False
-    LearningStore = None     # type: ignore[assignment,misc]
+# Organize and undo runs are serialised.  Two overlapping runs (the GUI's
+# Organize button racing Auto-Sort, or a debounce timer firing again while a
+# long sort is still going) could otherwise pick the same "name (1)" target —
+# and a move onto an existing file silently replaces it on POSIX — interleave
+# their manifest updates, or close each other's log handler.
+_RUN_LOCK = threading.RLock()
 
 
 # ---------------------------------------------------------------------------
@@ -185,9 +179,6 @@ DEFAULT_CATEGORIES: dict[str, list[str]] = {
 # Config file loader
 # ---------------------------------------------------------------------------
 
-CONFIG_FILENAME = "arise-i.config.yaml"
-
-
 def _normalize_categories(data: dict) -> dict[str, list[str]] | None:
     """Coerce a parsed YAML mapping into {category: [".ext", ...]}.
 
@@ -273,18 +264,8 @@ def load_categories(
 # ---------------------------------------------------------------------------
 
 def _sanitize_category_name(name: str) -> str:
-    """Sanitize category names to prevent path traversal and injection.
-
-    Removes dangerous characters and path traversal sequences like '..'
-    to ensure category names are safe for path construction.
-    """
-    import re
-    # Remove path traversal sequences and dangerous characters
-    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', name)
-    name = name.replace('..', '')
-    name = name.strip('. ')
-    # Ensure name is not empty after sanitization
-    return name if name else "Others"
+    """Make a category name safe to use as a folder name ("Others" if empty)."""
+    return sanitize_folder_name(name, fallback="Others")
 
 def build_extension_map(categories: dict[str, list[str]]) -> dict[str, str]:
     """Flip {folder: [ext, ext, ...]} into {ext: folder} for O(1) lookup."""
@@ -318,7 +299,8 @@ def get_unique_destination(dest_folder: Path, filename: str) -> Path:
 
     # Cache existing filenames for performance with large file sets
     try:
-        existing_files = {f.stem for f in dest_folder.glob(f"{stem}*{suffix}")}
+        pattern = f"{glob.escape(stem)}*{glob.escape(suffix)}"
+        existing_files = {f.stem for f in dest_folder.glob(pattern)}
     except OSError:
         # Fallback to individual checks if glob fails
         existing_files = set()
@@ -340,12 +322,6 @@ def get_unique_destination(dest_folder: Path, filename: str) -> Path:
 # ---------------------------------------------------------------------------
 # Persistent run log (JSON manifest for undo)
 # ---------------------------------------------------------------------------
-
-LOG_MANIFEST = ".arise-i-log.json"
-
-# Low-confidence files are quarantined here (mirrors SmartClassifier.REVIEW_FOLDER)
-REVIEW_FOLDER = "__Review__"
-
 
 def _load_manifest(target_dir: Path) -> list[dict]:
     """Load the full history manifest from disk (list of run entries)."""
@@ -429,12 +405,18 @@ def _record_run(target_dir: Path, moves: list[dict]) -> None:
         print(f"  {Color.YELLOW}⚠ Warning: Could not record run in manifest.{Color.RESET}")
 
 
+def record_moves(target_dir: str | Path, moves: list[dict]) -> None:
+    """Log moves made outside a run (e.g. Review decisions) so Undo covers them."""
+    with _RUN_LOCK:
+        _record_run(Path(target_dir).expanduser().resolve(), moves)
+
+
 # ---------------------------------------------------------------------------
 # Plain-text audit log
 # ---------------------------------------------------------------------------
 
 # Files ARISE-I generates or reads itself — never move these during a scan
-_OWN_FILES = {"arise-i.log", LOG_MANIFEST, CONFIG_FILENAME}
+_OWN_FILES = {LOG_FILE, LOG_MANIFEST, CONFIG_FILENAME}
 
 # OS metadata files that must stay put (moving desktop.ini breaks a Windows
 # folder's custom name/icon).  Compared case-insensitively.
@@ -504,7 +486,7 @@ def _setup_file_logger(target_dir: Path, dry_run: bool = False) -> logging.Logge
             handler.close()
 
     if not dry_run:
-        log_file = target_dir / "arise-i.log"
+        log_file = target_dir / LOG_FILE
         handler = logging.FileHandler(log_file, encoding="utf-8")
         handler._arise_i_file_handler = True  # type: ignore[attr-defined]
         handler.setFormatter(
@@ -638,7 +620,7 @@ def organize_folder(
         (relocation, simulation, skip, error).  Used by the GUI to populate
         the live log feed.  No-op when None — all CLI behaviour unchanged.
     plugins : list, optional
-        Pre-loaded classifier plugin callables (from ``plugin_loader.load_plugins``).
+        Pre-loaded classifier plugin callables (from ``arise_i.core.plugins.load_plugins``).
         Each plugin is tried in order before falling back to the extension map.
         Pass ``None`` (default) to skip all plugin logic.
 
@@ -666,21 +648,22 @@ def organize_folder(
             log_callback(f"✗  {msg}")
         return Stats()
 
-    try:
-        # Sort entries for deterministic, reproducible output across runs
-        items = sorted(target_path.iterdir(), key=lambda p: p.name.lower())
-    except OSError as exc:
-        print(f"{Color.RED}✗ Cannot read folder {target_path}: {exc}{Color.RESET}")
-        if log_callback:
-            log_callback(f"✗  Cannot read folder: {exc}")
-        return Stats()
+    with _RUN_LOCK:
+        try:
+            # Sort entries for deterministic, reproducible output across runs
+            items = sorted(target_path.iterdir(), key=lambda p: p.name.lower())
+        except OSError as exc:
+            print(f"{Color.RED}✗ Cannot read folder {target_path}: {exc}{Color.RESET}")
+            if log_callback:
+                log_callback(f"✗  Cannot read folder: {exc}")
+            return Stats()
 
-    _setup_file_logger(target_path, dry_run=dry_run)
-    try:
-        return _organize_items(target_path, items, dry_run, categories, log_callback,
-                               plugins, confidence_threshold, learning_store)
-    finally:
-        _close_file_logger()
+        _setup_file_logger(target_path, dry_run=dry_run)
+        try:
+            return _organize_items(target_path, items, dry_run, categories, log_callback,
+                                   plugins, confidence_threshold, learning_store)
+        finally:
+            _close_file_logger()
 
 
 def _organize_items(
@@ -702,185 +685,36 @@ def _organize_items(
     stats   = Stats()
     moves: list[dict] = []  # populated only during live runs (for undo log)
 
-    # Instantiate AI classifier (falls back gracefully if classifier.py absent)
+    # Instantiate AI classifier (falls back to the extension map if it fails)
     _smart: SmartClassifier | None = None
-    if _CLASSIFIER_AVAILABLE and get_classifier is not None:
-        try:
-            _smart = get_classifier(categories, confidence_threshold)
-        except Exception as _exc:
-            logger.warning("SmartClassifier init failed (%s) — using ext_map fallback.", _exc)
+    try:
+        _smart = get_classifier(categories, confidence_threshold)
+    except Exception as _exc:
+        logger.warning("SmartClassifier init failed (%s) — using ext_map fallback.", _exc)
 
     print(f"{Color.CYAN}ARISE-I >> Target acquired: {target_path}{Color.RESET}\n")
 
-    for item in items:
-        # Own metadata, hidden/system files, Office lock files and in-progress
-        # downloads stay exactly where they are — moving them is surprising at
-        # best and corrupts a download or breaks the folder at worst.
-        reason = skip_reason(item)
-        if reason is not None:
-            if reason != "arise-i":
-                logger.info("Skipped %s file: %s", reason, item.name)
-            continue
-
-        # --- Skip directories (including ones ARISE-I already created) -------
-        if item.is_dir():
-            continue
-
-        # --- Skip broken symlinks (symlink exists, target doesn't) ----------
-        if item.is_symlink() and not item.exists():
-            msg = f"Skipped broken symlink: {item.name}"
-            print(f"  {Color.YELLOW}⚠  {msg}{Color.RESET}")
-            logger.warning(msg)
-            if log_callback:
-                log_callback(f"⚠  {msg}")
-            stats.skipped += 1
-            continue
-
-        # --- Determine category ---------------------------------------------
-        # Priority: plugins → SmartClassifier (AI) → ext_map fallback
-        plugin_category: str | None = None
-        if plugins:
-            plugin_category = classify_with_plugins(item, plugins)
-
-        # AI classification path
-        _confidence = 1.0
-        _badge      = "PLUGIN"
-        _layer      = "plugin"
-        _result     = None
-        if plugin_category:
-            raw_category = plugin_category
-        elif _smart is not None:
-            _result      = _smart.classify(item)
-            raw_category = _result.category
-            _confidence  = _result.confidence
-            _badge       = _result.badge
-            _layer       = _result.layer
-        else:
-            # Legacy ext_map fallback (no classifier.py)
-            ext          = item.suffix.lower()
-            raw_category = ext_map.get(ext, "Others")
-            _badge       = "EXT"
-            _layer       = "extension"
-
-        category = _sanitize_category_name(raw_category)
-
-        # ── Assignment-specific nested folder structure ───────────────────
-        # When the classifier detects an assignment pattern with a subject,
-        # build:  <target> / Subject / Assignment N / FileType /
-        # When the subject is missing, quarantine to __Review__/.
-        _assignment_info = None
-        if _result is not None and hasattr(_result, 'assignment_info'):
-            _assignment_info = _result.assignment_info
-
-        # Try to get file size (safe — file may be 0 bytes or unreadable)
-        try:
-            size_bytes = item.stat().st_size
-        except OSError:
-            size_bytes = 0
-
-        if _assignment_info is not None and _assignment_info.subject:
-            # Nested:  Subject / Assignment N / FileType
-            _subj_folder = _sanitize_category_name(_assignment_info.subject)
-            _asgn_folder = _sanitize_category_name(_assignment_info.folder_name)
-            _type_folder = _sanitize_category_name(category)
-            dest_folder  = target_path / _subj_folder / _asgn_folder / _type_folder
-            _display_dest = f"{_subj_folder}/{_asgn_folder}/{_type_folder}"
-        elif _assignment_info is not None and _assignment_info.subject is None:
-            # No subject → quarantine to __Review__
-            dest_folder   = target_path / REVIEW_FOLDER
-            category      = REVIEW_FOLDER
-            _display_dest = REVIEW_FOLDER
-        else:
-            # Standard flat folder for non-assignment files
-            dest_folder   = target_path / category
-            _display_dest = category
-
-        dest_path = get_unique_destination(dest_folder, item.name)
-
-        if dry_run:
-            dedup_note = (
-                f" → renamed to {dest_path.name}"
-                if dest_path.name != item.name
-                else ""
-            )
-            print(
-                f"  {Color.YELLOW}[SIMULATION]{Color.RESET} "
-                f"{item.name}  {Color.DIM}→{Color.RESET}  "
-                f"{Color.CYAN}{_display_dest}/{Color.RESET}{dedup_note}"
-                f"  {Color.DIM}[{_badge} {_confidence:.0%}]{Color.RESET}"
-            )
-            logger.info("[DRY-RUN] Would move: %s -> %s/ (conf=%.2f layer=%s)",
-                        item.name, _display_dest, _confidence, _layer)
-            if log_callback:
-                log_callback(f"[SIM]  {item.name}  →  {_display_dest}/{dedup_note}  [{_badge} {_confidence:.0%}]")
-            stats.record(category, size_bytes)
-            continue
-
-        # --- Live run: actually move the file --------------------------------
-        try:
-            dest_folder.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(item), str(dest_path))
-
-            dedup_note = (
-                f" (renamed: {dest_path.name})"
-                if dest_path.name != item.name
-                else ""
-            )
-            # Colour-code uncertain (Review) moves differently
-            _is_review = category == REVIEW_FOLDER
-            _color = Color.YELLOW if _is_review else Color.GREEN
-            _icon  = "⚠" if _is_review else "✓"
-            print(
-                f"  {_color}{_icon} Relocated:{Color.RESET} "
-                f"{item.name}  →  {Color.CYAN}{_display_dest}/{Color.RESET}"
-                f"  {Color.DIM}[{_badge} {_confidence:.0%}]{dedup_note}{Color.RESET}"
-            )
-            logger.info("Moved: %s -> %s (conf=%.2f layer=%s)",
-                        item, dest_path, _confidence, _layer)
-            if log_callback:
-                log_callback(f"{_icon}  {item.name}  →  {_display_dest}/{dedup_note}  [{_badge} {_confidence:.0%}]")
-            stats.record(category, size_bytes)
-
-            # Record the move for undo support
-            moves.append({"src": str(item), "dest": str(dest_path),
-                          "confidence": _confidence, "layer": _layer})
-
-            # Feed learning store (non-blocking — errors are logged, never raised).
-            # Review moves are not ground truth: the label arrives later, when
-            # the user resolves the file in the Review tab.  Recording them here
-            # would teach the model to predict "__Review__" as a real category.
-            if learning_store is not None and not _is_review:
-                try:
-                    learning_store.record(
-                        path=item,
-                        predicted=category,
-                        confirmed=category,   # will be corrected via Review tab
-                        confidence=_confidence,
-                        layer=_layer,
-                    )
-                except Exception as _le:
-                    logger.debug("Learning store record failed: %s", _le)
-
-        except PermissionError as exc:
-            msg = f"Permission denied — skipped {item.name}: {exc}"
-            print(f"  {Color.RED}✗ {msg}{Color.RESET}")
-            logger.error(msg)
-            if log_callback:
-                log_callback(f"✗  {msg}")
-            stats.errors += 1
-
-        except OSError as exc:
-            msg = f"OS error moving {item.name}: {exc}"
-            print(f"  {Color.RED}✗ {msg}{Color.RESET}")
-            logger.error(msg)
-            if log_callback:
-                log_callback(f"✗  {msg}")
-            stats.errors += 1
-
-    # --- Persist undo manifest (live runs only) ----------------------------
-    if not dry_run and moves:
-        _record_run(target_path, moves)
-        logger.info("Undo manifest updated: %d move(s) logged.", len(moves))
+    try:
+        for item in items:
+            try:
+                move = _organize_item(item, target_path, dry_run, ext_map, _smart,
+                                      plugins, log_callback, learning_store, stats)
+            except Exception as exc:  # one bad file must never abort the run
+                msg = f"Unexpected error on {item.name}: {exc}"
+                print(f"  {Color.RED}✗ {msg}{Color.RESET}")
+                logger.exception(msg)
+                if log_callback:
+                    log_callback(f"✗  {msg}")
+                stats.errors += 1
+                continue
+            if move is not None:
+                moves.append(move)
+    finally:
+        # Persist the undo manifest even if the run was interrupted (Ctrl-C,
+        # a crash) — every file already moved must stay undoable.
+        if not dry_run and moves:
+            _record_run(target_path, moves)
+            logger.info("Undo manifest updated: %d move(s) logged.", len(moves))
 
     logger.info(
         "Run complete | moved=%d | skipped=%d | errors=%d",
@@ -888,6 +722,192 @@ def _organize_items(
     )
 
     return stats
+
+
+def _organize_item(
+    item: Path,
+    target_path: Path,
+    dry_run: bool,
+    ext_map: dict[str, str],
+    _smart: "SmartClassifier | None",
+    plugins,
+    log_callback,
+    learning_store,
+    stats: Stats,
+) -> dict | None:
+    """Classify and (unless *dry_run*) move one entry.
+
+    Returns the undo record for a completed move, otherwise None.
+    """
+    # Own metadata, hidden/system files, Office lock files and in-progress
+    # downloads stay exactly where they are — moving them is surprising at
+    # best and corrupts a download or breaks the folder at worst.
+    reason = skip_reason(item)
+    if reason is not None:
+        if reason != "arise-i":
+            logger.info("Skipped %s file: %s", reason, item.name)
+        return None
+
+    # --- Skip directories (including ones ARISE-I already created) -------
+    if item.is_dir():
+        return None
+
+    # --- Skip broken symlinks (symlink exists, target doesn't) ----------
+    if item.is_symlink() and not item.exists():
+        msg = f"Skipped broken symlink: {item.name}"
+        print(f"  {Color.YELLOW}⚠  {msg}{Color.RESET}")
+        logger.warning(msg)
+        if log_callback:
+            log_callback(f"⚠  {msg}")
+        stats.skipped += 1
+        return None
+
+    # --- Determine category ---------------------------------------------
+    # Priority: plugins → SmartClassifier (AI) → ext_map fallback
+    plugin_category: str | None = None
+    if plugins:
+        plugin_category = classify_with_plugins(item, plugins)
+
+    # AI classification path
+    _confidence = 1.0
+    _badge      = "PLUGIN"
+    _layer      = "plugin"
+    _result     = None
+    if plugin_category:
+        raw_category = plugin_category
+    elif _smart is not None:
+        _result      = _smart.classify(item)
+        raw_category = _result.category
+        _confidence  = _result.confidence
+        _badge       = _result.badge
+        _layer       = _result.layer
+    else:
+        # Extension-map fallback (classifier failed to initialise)
+        ext          = item.suffix.lower()
+        raw_category = ext_map.get(ext, "Others")
+        _badge       = "EXT"
+        _layer       = "extension"
+
+    category = _sanitize_category_name(raw_category)
+
+    # ── Assignment-specific nested folder structure ───────────────────
+    # When the classifier detects an assignment pattern with a subject,
+    # build:  <target> / Subject / Assignment N / FileType /
+    # When the subject is missing, quarantine to __Review__/.
+    _assignment_info = None
+    if _result is not None and hasattr(_result, 'assignment_info'):
+        _assignment_info = _result.assignment_info
+
+    # Try to get file size (safe — file may be 0 bytes or unreadable)
+    try:
+        size_bytes = item.stat().st_size
+    except OSError:
+        size_bytes = 0
+
+    if category == REVIEW_FOLDER:
+        # Low confidence wins over an assignment match: Review is never nested
+        dest_folder   = target_path / REVIEW_FOLDER
+        _display_dest = REVIEW_FOLDER
+    elif _assignment_info is not None and _assignment_info.subject:
+        # Nested:  Subject / Assignment N / FileType
+        _subj_folder = _sanitize_category_name(_assignment_info.subject)
+        _asgn_folder = _sanitize_category_name(_assignment_info.folder_name)
+        _type_folder = _sanitize_category_name(category)
+        dest_folder  = target_path / _subj_folder / _asgn_folder / _type_folder
+        _display_dest = f"{_subj_folder}/{_asgn_folder}/{_type_folder}"
+    elif _assignment_info is not None and _assignment_info.subject is None:
+        # No subject → quarantine to __Review__
+        dest_folder   = target_path / REVIEW_FOLDER
+        category      = REVIEW_FOLDER
+        _display_dest = REVIEW_FOLDER
+    else:
+        # Standard flat folder for non-assignment files
+        dest_folder   = target_path / category
+        _display_dest = category
+
+    dest_path = get_unique_destination(dest_folder, item.name)
+
+    if dry_run:
+        dedup_note = (
+            f" → renamed to {dest_path.name}"
+            if dest_path.name != item.name
+            else ""
+        )
+        print(
+            f"  {Color.YELLOW}[SIMULATION]{Color.RESET} "
+            f"{item.name}  {Color.DIM}→{Color.RESET}  "
+            f"{Color.CYAN}{_display_dest}/{Color.RESET}{dedup_note}"
+            f"  {Color.DIM}[{_badge} {_confidence:.0%}]{Color.RESET}"
+        )
+        logger.info("[DRY-RUN] Would move: %s -> %s/ (conf=%.2f layer=%s)",
+                    item.name, _display_dest, _confidence, _layer)
+        if log_callback:
+            log_callback(f"[SIM]  {item.name}  →  {_display_dest}/{dedup_note}  [{_badge} {_confidence:.0%}]")
+        stats.record(category, size_bytes)
+        return None
+
+    # --- Live run: actually move the file --------------------------------
+    try:
+        dest_folder.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(item), str(dest_path))
+
+        dedup_note = (
+            f" (renamed: {dest_path.name})"
+            if dest_path.name != item.name
+            else ""
+        )
+        # Colour-code uncertain (Review) moves differently
+        _is_review = category == REVIEW_FOLDER
+        _color = Color.YELLOW if _is_review else Color.GREEN
+        _icon  = "⚠" if _is_review else "✓"
+        print(
+            f"  {_color}{_icon} Relocated:{Color.RESET} "
+            f"{item.name}  →  {Color.CYAN}{_display_dest}/{Color.RESET}"
+            f"  {Color.DIM}[{_badge} {_confidence:.0%}]{dedup_note}{Color.RESET}"
+        )
+        logger.info("Moved: %s -> %s (conf=%.2f layer=%s)",
+                    item, dest_path, _confidence, _layer)
+        if log_callback:
+            log_callback(f"{_icon}  {item.name}  →  {_display_dest}/{dedup_note}  [{_badge} {_confidence:.0%}]")
+        stats.record(category, size_bytes)
+
+        # Record the move for undo support
+        move = {"src": str(item), "dest": str(dest_path),
+                "confidence": _confidence, "layer": _layer}
+
+        # Feed learning store (non-blocking — errors are logged, never raised).
+        # Review moves are not ground truth: the label arrives later, when
+        # the user resolves the file in the Review tab.  Recording them here
+        # would teach the model to predict "__Review__" as a real category.
+        if learning_store is not None and not _is_review:
+            try:
+                learning_store.record(
+                    path=item,
+                    predicted=category,
+                    confirmed=category,   # will be corrected via Review tab
+                    confidence=_confidence,
+                    layer=_layer,
+                )
+            except Exception as _le:
+                logger.debug("Learning store record failed: %s", _le)
+        return move
+
+    except PermissionError as exc:
+        msg = f"Permission denied — skipped {item.name}: {exc}"
+        print(f"  {Color.RED}✗ {msg}{Color.RESET}")
+        logger.error(msg)
+        if log_callback:
+            log_callback(f"✗  {msg}")
+        stats.errors += 1
+
+    except OSError as exc:
+        msg = f"OS error moving {item.name}: {exc}"
+        print(f"  {Color.RED}✗ {msg}{Color.RESET}")
+        logger.error(msg)
+        if log_callback:
+            log_callback(f"✗  {msg}")
+        stats.errors += 1
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -920,8 +940,17 @@ def undo_last_run(target_dir: str, log_callback=None) -> tuple[int, int]:
     than overwriting it.  Moves that fail stay in the manifest so a later undo
     can retry them.  Category folders left empty by the undo are removed.
 
+    A run where *none* of the sorted files are left to restore (all deleted
+    or moved away) is dropped from history, so it can't block undoing the
+    runs before it.
+
     Returns ``(restored, failed)``.
     """
+    with _RUN_LOCK:
+        return _undo_last_run(target_dir, log_callback)
+
+
+def _undo_last_run(target_dir: str, log_callback) -> tuple[int, int]:
     def emit(console: str, plain: str) -> None:
         print(console)
         if log_callback:
@@ -953,6 +982,7 @@ def undo_last_run(target_dir: str, log_callback=None) -> tuple[int, int]:
     logger.info("UNDO started for run timestamp=%s", timestamp)
 
     restored = 0
+    missing  = 0                 # sorted file no longer exists — can't ever restore
     failed_moves: list[dict] = []
 
     try:
@@ -966,6 +996,7 @@ def undo_last_run(target_dir: str, log_callback=None) -> tuple[int, int]:
                 emit(f"  {Color.RED}✗ {msg}{Color.RESET}", f"✗  {msg}")
                 logger.error(msg)
                 failed_moves.append(move)
+                missing += 1
                 continue
 
             try:
@@ -989,9 +1020,18 @@ def undo_last_run(target_dir: str, log_callback=None) -> tuple[int, int]:
                 logger.error(msg)
                 failed_moves.append(move)
 
-        # Drop the run once it's fully undone; keep failed moves for a retry
-        if restored > 0:
-            if failed_moves:
+        # Drop the run once it's fully undone; keep failed moves for a retry.
+        # A run with nothing left to restore is dropped too — otherwise it
+        # would sit on top of the history and block every older run forever.
+        nothing_left = restored == 0 and failed_moves and missing == len(failed_moves)
+        if nothing_left:
+            emit(
+                f"  {Color.YELLOW}⚠ None of this run's files are left to restore — "
+                f"removed it from history.{Color.RESET}",
+                "⚠  None of this run's files are left to restore — removed it from history.",
+            )
+        if restored > 0 or nothing_left:
+            if failed_moves and not nothing_left:
                 last_run["moves"] = list(reversed(failed_moves))
             else:
                 history.pop()
@@ -1074,7 +1114,7 @@ def main(argv: list[str] | None = None) -> int:
     boot_sequence(dry_run=args.dry_run)
 
     # Load plugins once — shared across all modes
-    active_plugins = load_plugins() if _PLUGINS_AVAILABLE else []
+    active_plugins = load_plugins()
     if active_plugins:
         print(
             f"{Color.CYAN}>> {len(active_plugins)} classifier plugin(s) active.{Color.RESET}\n"
@@ -1082,7 +1122,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Live runs feed the local learning log, exactly like the GUI does
     store = None
-    if _LEARNING_AVAILABLE and not args.dry_run and not args.undo:
+    if not args.dry_run and not args.undo:
         try:
             store = LearningStore()
         except Exception as exc:
@@ -1090,7 +1130,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.watch:
         # Import lazily so watchdog is only required when --watch is used
-        from file_watcher import WATCHDOG_AVAILABLE as _WD_OK, watch_folder
+        from arise_i.core.watcher import WATCHDOG_AVAILABLE as _WD_OK, watch_folder
         if not _WD_OK:
             print(
                 f"{Color.RED}✗ watchdog is required for --watch mode.\n"

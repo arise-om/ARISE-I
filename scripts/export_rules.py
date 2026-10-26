@@ -20,9 +20,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import assignment_classifier as ac  # noqa: E402
-import classifier as cl  # noqa: E402
-import file_organizer as fo  # noqa: E402
+from arise_i.core import assignment as ac  # noqa: E402
+from arise_i.core import classifier as cl  # noqa: E402
+from arise_i.core import organizer as fo  # noqa: E402
 
 OUTPUT = ROOT / "android" / "engine" / "src" / "main" / "resources" / "arise-rules.json"
 SCHEMA_VERSION = 1
@@ -84,7 +84,7 @@ def build_rules() -> dict:
         "fallback_category": "Others",
         "confidence_threshold": 0.75,
         "badge": {"high": 0.85, "med": 0.65},
-        # Literal confidences from classifier.SmartClassifier's layer methods.
+        # Literal confidences from arise_i.core.classifier.SmartClassifier's layer methods.
         "layer_confidence": {
             "extension_hit": 0.92,
             "extension_miss": 0.10,
@@ -111,6 +111,8 @@ def build_rules() -> dict:
             "no_subject": [_java_regex(p.pattern) for p in ac._PATTERNS_NO_SUBJECT],
             "confidence": {"type_first": 0.95, "subject_first": 0.93, "no_subject": 0.80},
             "subject_strip": " -–—_.",
+            # Stripped from the stem before matching: "Lab 2 - Bio (1)" → "Lab 2 - Bio"
+            "copy_suffix": ac._COPY_SUFFIX.pattern,
         },
         "skip": {
             "own_files": sorted(fo._OWN_FILES),

@@ -59,6 +59,8 @@ data class Rules(
         @SerialName("no_subject") val noSubject: List<String>,
         val confidence: Map<String, Double>,
         @SerialName("subject_strip") val subjectStrip: String,
+        /** Removed from the stem before matching, e.g. a trailing " (1)" on a copy. */
+        @SerialName("copy_suffix") val copySuffix: String = "",
     )
 
     @Serializable

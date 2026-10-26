@@ -169,6 +169,34 @@
       "expect": "arise-i.log"
     },
     {
+      "name": "blog_post",
+      "expect": "__Review__/blog_post"
+    },
+    {
+      "name": "keynote",
+      "expect": "__Review__/keynote"
+    },
+    {
+      "name": "lecture_notes",
+      "expect": "Documents/lecture_notes"
+    },
+    {
+      "name": "Lab 2 - Bio (1).pdf",
+      "expect": "Bio/Lab 2/PDFs/Lab 2 - Bio (1).pdf"
+    },
+    {
+      "name": "Math - Assignment 4 (2).pdf",
+      "expect": "Math/Assignment 4/PDFs/Math - Assignment 4 (2).pdf"
+    },
+    {
+      "name": "Assignment 5 - Calculus - Solutions.pdf",
+      "expect": "Calculus/Assignment 5/PDFs/Assignment 5 - Calculus - Solutions.pdf"
+    },
+    {
+      "name": "Assignment 1 - Con.pdf",
+      "expect": "Con_/Assignment 1/PDFs/Assignment 1 - Con.pdf"
+    },
+    {
       "name": "dup.pdf",
       "expect": "PDFs/dup (1).pdf",
       "renamed_to": "dup (1).pdf"

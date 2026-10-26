@@ -24,6 +24,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
+from arise_i.constants import APP_DIR, REVIEW_FOLDER
+from arise_i.core.classifier import extract_text_features
+
 logger = logging.getLogger("arise_i.learning")
 
 # ── Optional: sklearn ─────────────────────────────────────────────────────────
@@ -38,7 +41,7 @@ except ImportError:
     _SKLEARN_AVAILABLE = False
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-_ARISE_DIR      = Path.home() / ".arise-i"
+_ARISE_DIR      = APP_DIR
 FEEDBACK_FILE   = _ARISE_DIR / "feedback.jsonl"
 MODEL_FILE      = _ARISE_DIR / "model.pkl"
 MODEL_META_FILE = _ARISE_DIR / "model_meta.json"
@@ -49,7 +52,7 @@ MIN_CLASS_SAMPLES = 2     # minimum samples per class for NB to be valid
 
 # Labels that are never ground truth.  Versions before 2.1 logged files sent
 # to the Review quarantine as confirmed "__Review__" — those rows are ignored.
-_NON_LABELS = {"__Review__"}
+_NON_LABELS = {REVIEW_FOLDER}
 
 # Serialises feedback appends and model writes across the GUI worker, the
 # watcher and the health monitor's retrain thread.
@@ -109,13 +112,11 @@ class LearningStore:
         confidence: model confidence at classification time
         layer     : classifier layer that made the decision
         """
-        from classifier import _extract_text_features  # avoid circular at module level
-
         event: dict = {
             "ts":         datetime.now().isoformat(timespec="seconds"),
             "filename":   path.name,
             "extension":  path.suffix.lower(),
-            "features":   _extract_text_features(path),
+            "features":   extract_text_features(path),
             "predicted":  predicted,
             "confirmed":  confirmed,
             "confidence": round(confidence, 4),
@@ -133,15 +134,19 @@ class LearningStore:
             logger.warning("Could not write feedback event: %s", exc)
             return
 
-        self._session_events += 1
+        with _LOCK:
+            self._session_events += 1
+            due = _SKLEARN_AVAILABLE and self._session_events >= self._retrain_threshold
+            if due:
+                self._session_events = 0
 
         # Auto-retrain when threshold is hit.  The session counter is checked
-        # first so the whole log isn't re-read after every single file.
-        if _SKLEARN_AVAILABLE and self._session_events >= self._retrain_threshold:
-            if self.total_events() >= MIN_SAMPLES:
-                logger.info("Auto-retrain triggered (%d session events)", self._session_events)
-                self.retrain()
-                self._session_events = 0
+        # first so the whole log isn't re-read after every single file, and
+        # training runs in the background so it never stalls a sort.
+        if due and self.total_events() >= MIN_SAMPLES:
+            logger.info("Auto-retrain triggered (%d events)", self._retrain_threshold)
+            threading.Thread(target=self.retrain, daemon=True,
+                             name="arise-i-retrain").start()
 
     def retrain(self, force: bool = False) -> bool:
         """Retrain the sklearn model from the full feedback log.
@@ -207,7 +212,7 @@ class LearningStore:
 
             model_data = {
                 "pipeline":   pipeline,
-                "labels":     sorted(set(labels_f)),
+                "labels":     [str(c) for c in pipeline.classes_],
                 "trained_on": len(pairs),
                 "accuracy":   accuracy,
                 "timestamp":  datetime.now().isoformat(timespec="seconds"),

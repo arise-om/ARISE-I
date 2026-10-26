@@ -17,10 +17,10 @@ from pathlib import Path
 
 import pytest
 
-import classifier
-import health_monitor
-from file_organizer import DEFAULT_CATEGORIES, organize_folder
-from learning_store import LearningStore
+from arise_i.core import classifier
+from arise_i.core import health as health_monitor
+from arise_i.core.organizer import DEFAULT_CATEGORIES, organize_folder
+from arise_i.core.learning import LearningStore
 
 try:
     import sklearn  # noqa: F401
@@ -174,7 +174,11 @@ class TestHealthMonitor:
             hm._check_drift()
         assert len(spawned) == 1
 
-        store.events += 5            # new feedback arrived
+        store.events += 1            # a single new event isn't worth a retrain
+        hm._check_drift()
+        assert len(spawned) == 1
+
+        store.events += health_monitor.DRIFT_MIN_NEW_EVENTS   # enough new feedback
         hm._check_drift()
         assert len(spawned) == 2
 

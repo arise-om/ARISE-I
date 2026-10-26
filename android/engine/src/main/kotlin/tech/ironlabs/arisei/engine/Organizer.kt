@@ -114,6 +114,8 @@ class Organizer(
         val category = FileNames.sanitizeCategory(r.category)
         val a = r.assignment
         return when {
+            // Low confidence wins over an assignment match: Review is never nested
+            r.category == rules.reviewFolder -> PlanItem(name, size, r, rules.reviewFolder, rules.reviewFolder)
             a != null && a.subject != null -> PlanItem(
                 name, size, r,
                 listOf(a.subject, a.folderName, category).joinToString("/") { FileNames.sanitizeCategory(it) },

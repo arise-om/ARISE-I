@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "arise-i"
-version = "2.1.0"
+dynamic = ["version"]
 description = "Autonomous File Organization Unit — sorts Downloads and any folder automatically"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -44,8 +44,8 @@ ai = [
 
 [project.scripts]
 # After `pip install -e .` these commands become available system-wide:
-arise-i     = "file_organizer:_cli_main"
-arise-i-gui = "gui:main"
+arise-i     = "arise_i.core.organizer:_cli_main"
+arise-i-gui = "arise_i.gui.app:main"
 
 [project.urls]
 Homepage   = "https://github.com/arise-om/ARISE-I"
@@ -56,16 +56,11 @@ Issues     = "https://github.com/arise-om/ARISE-I/issues"
 testpaths = ["tests"]
 addopts   = "-v"
 
-[tool.setuptools]
-# ARISE-I is a flat-module project, not a package directory.
-# Every runtime module must be listed here: classifier.py imports
-# assignment_classifier inside a try/except, so a missing entry silently
-# disables assignment sorting in installed builds instead of failing loudly.
-py-modules = [
-    "file_organizer", "file_watcher", "gui", "plugin_loader",
-    "prefs", "onboarding", "ui_theme",
-    "classifier", "assignment_classifier", "learning_store", "health_monitor",
-]
+[tool.setuptools.dynamic]
+version = { attr = "arise_i.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["arise_i*"]
 
 [tool.ruff]
 target-version = "py310"

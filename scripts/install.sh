@@ -39,6 +39,13 @@ fi
 echo "✅ Python version check passed"
 echo ""
 
+# macOS: python.org and Homebrew builds differ on whether tkinter is included
+if [[ "$OS" == "macos" ]] && ! python3 -c "import tkinter" 2>/dev/null; then
+    echo "❌ This Python has no tkinter, which the ARISE-I window needs."
+    echo "   Install Python from python.org, or run: brew install python-tk"
+    exit 1
+fi
+
 # Install tkinter if needed (Linux only)
 if [[ "$OS" == "linux" ]]; then
     echo "📦 Checking for tkinter..."
@@ -67,7 +74,7 @@ if [[ "$OS" == "macos" ]]; then
 else
     INSTALL_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/arise-i"
 fi
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_DIR="$INSTALL_ROOT/venv"
 
 echo "🔧 Installing ARISE-I in $INSTALL_ROOT..."
@@ -77,7 +84,7 @@ if ! python3 -m venv "$VENV_DIR"; then
     exit 1
 fi
 "$VENV_DIR/bin/python" -m pip install --upgrade pip -q
-"$VENV_DIR/bin/python" -m pip install "$SCRIPT_DIR" -q
+"$VENV_DIR/bin/python" -m pip install "$PROJECT_DIR" -q
 
 echo "✅ ARISE-I installed"
 echo ""
@@ -88,6 +95,7 @@ echo "   Enables byte-level MIME detection and a local ML model that learns"
 echo "   from your corrections. Adds ~60 MB (scikit-learn + filetype)."
 echo ""
 
+AI_CMD="\"$VENV_DIR/bin/pip\" install \"$PROJECT_DIR[ai]\""
 INSTALL_AI=false
 if [ -t 0 ]; then
     # stdin is a TTY — ask interactively
@@ -97,20 +105,19 @@ if [ -t 0 ]; then
     esac
 else
     echo "   (Non-interactive mode — skipping AI extras.)"
-    echo "   To add later:  pip install arise-i[ai]  inside the venv"
 fi
 
 if $INSTALL_AI; then
     echo "🔧 Installing AI extras (scikit-learn, filetype)…"
-    if "$VENV_DIR/bin/python" -m pip install "scikit-learn>=1.3" "filetype>=1.2" -q; then
+    if "$VENV_DIR/bin/python" -m pip install "$PROJECT_DIR[ai]" -q; then
         echo "✅ AI extras installed — smart classification enabled"
     else
         echo "⚠️  AI extras install failed. ARISE-I will still work without them."
-        echo "   Retry later: pip install scikit-learn filetype"
+        echo "   Retry later: $AI_CMD"
     fi
 else
-    echo "   Skipped. To enable later, run:"
-    echo "   $VENV_DIR/bin/pip install scikit-learn filetype"
+    echo "   To enable later, run:"
+    echo "   $AI_CMD"
 fi
 echo ""
 
@@ -128,6 +135,14 @@ for CMD in arise-i arise-i-gui; do
 done
 
 echo "✅ CLI wrappers installed (arise-i, arise-i-gui)"
+case ":$PATH:" in
+    *":$BIN_DIR:"*) ;;
+    *)
+        echo "⚠️  $BIN_DIR is not on your PATH, so 'arise-i' won't be found yet."
+        echo "   Add this line to ~/.bashrc or ~/.zshrc, then open a new terminal:"
+        echo "     export PATH=\"\$HOME/.local/bin:\$PATH\""
+        ;;
+esac
 echo ""
 
 # Create desktop shortcut (Linux only)
@@ -155,6 +170,7 @@ fi
 # Create macOS app (macOS only)
 if [[ "$OS" == "macos" ]]; then
     echo "🍎 Creating macOS application..."
+    APP_VERSION="$("$VENV_DIR/bin/python" -c 'import arise_i; print(arise_i.__version__)')"
     APP_DIR="$HOME/Applications/ARISE-I.app"
     mkdir -p "$APP_DIR/Contents/MacOS"
     mkdir -p "$APP_DIR/Contents/Resources"
@@ -169,7 +185,9 @@ if [[ "$OS" == "macos" ]]; then
     <key>CFBundleName</key>
     <string>ARISE-I</string>
     <key>CFBundleVersion</key>
-    <string>1.0</string>
+    <string>$APP_VERSION</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$APP_VERSION</string>
 </dict>
 </plist>
 EOF
@@ -195,5 +213,5 @@ elif [[ "$OS" == "macos" ]]; then
 fi
 echo "   • CLI:     Type 'arise-i --help' for command-line options"
 echo ""
-echo "💡 First time? Just run 'arise-i-gui' and click 'Organize Now'!"
+echo "💡 First time? Run 'arise-i-gui' and click 'Preview' to see what would move."
 echo ""

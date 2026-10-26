@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from arise_i.constants import APP_DIR, REVIEW_FOLDER
+
 logger = logging.getLogger("arise_i.classifier")
 
 # ── Optional: byte-level MIME detection ─────────────────────────────────────
@@ -38,10 +40,7 @@ except ImportError:
 
 # ── Optional: ML model layer ─────────────────────────────────────────────────
 try:
-    from sklearn.naive_bayes import MultinomialNB          # noqa: F401
-    from sklearn.feature_extraction.text import TfidfVectorizer  # noqa: F401
-    from sklearn.pipeline import Pipeline                  # noqa: F401
-    import pickle                                          # noqa: F401
+    import sklearn  # noqa: F401
     _SKLEARN_AVAILABLE = True
 except ImportError:
     _SKLEARN_AVAILABLE = False
@@ -95,29 +94,34 @@ _MIME_PREFIX: list[tuple[str, str, float]] = [
     ("text/plain",       "Documents",     0.55),  # intentionally low — ambiguous
 ]
 
-# ── Assignment detection (optional) ──────────────────────────────────────────
-try:
-    from assignment_classifier import AssignmentInfo, parse_assignment
-    _ASSIGNMENT_AVAILABLE = True
-except ImportError:
-    _ASSIGNMENT_AVAILABLE = False
-    AssignmentInfo = None        # type: ignore[assignment,misc]
-    parse_assignment = None      # type: ignore[assignment,misc]
+# ── Assignment detection ─────────────────────────────────────────────────────
+from arise_i.core.assignment import AssignmentInfo, parse_assignment  # noqa: E402
 
 # ── Filename heuristics ──────────────────────────────────────────────────────
 
+def _words(pattern: str) -> re.Pattern:
+    """Match *pattern* only as a whole word inside a filename.
+
+    ``\\b`` treats ``_`` as a word character, so it would miss the
+    ``notes`` in ``lecture_notes``; letters are the only thing that may not
+    touch the match.  This keeps ``blog_post`` out of Music (``ost``) and
+    ``keynote`` out of Documents (``note``).
+    """
+    return re.compile(rf"(?<![a-z])(?:{pattern})(?![a-z])", re.I)
+
+
 _HEURISTICS: list[tuple[re.Pattern, str, float]] = [
-    (re.compile(r'screenshot|screen.?cap|screen.?grab', re.I), "Images",     0.82),
-    (re.compile(r'\b(IMG|DSC|DCIM|PHOTO)[-_]\d{4,}',   re.I), "Images",     0.80),
-    (re.compile(r'wallpaper|background|avatar',          re.I), "Images",     0.78),
-    (re.compile(r'invoice|receipt|statement|billing',    re.I), "Documents",  0.84),
-    (re.compile(r'resume|curriculum.?vitae|\bcv\b',      re.I), "Documents",  0.88),
-    (re.compile(r'lecture|notes?',                        re.I), "Documents",  0.76),
-    (re.compile(r'setup[-_ v]\d|installer[-_ ]',         re.I), "Installers", 0.80),
-    (re.compile(r'\bebook\b|e-book',                     re.I), "Ebooks",     0.82),
-    (re.compile(r'soundtrack|ost\b|playlist|album',      re.I), "Music",      0.78),
-    (re.compile(r'tutorial|walkthrough|gameplay|playthrough', re.I), "Videos", 0.76),
-    (re.compile(r'\bfonts?\b|typeface',                  re.I), "Fonts",      0.82),
+    (_words(r'screenshot|screen.?cap|screen.?grab'),           "Images",     0.82),
+    (re.compile(r'\b(IMG|DSC|DCIM|PHOTO)[-_]\d{4,}', re.I),   "Images",     0.80),
+    (_words(r'wallpapers?|backgrounds?|avatars?'),              "Images",     0.78),
+    (_words(r'invoices?|receipts?|statements?|billing'),        "Documents",  0.84),
+    (_words(r'resume|curriculum.?vitae|cv'),                    "Documents",  0.88),
+    (_words(r'lectures?|notes?'),                               "Documents",  0.76),
+    (re.compile(r'setup[-_ v]\d|installer[-_ ]', re.I),        "Installers", 0.80),
+    (_words(r'ebooks?|e-books?'),                               "Ebooks",     0.82),
+    (_words(r'soundtracks?|ost|playlists?|albums?'),            "Music",      0.78),
+    (_words(r'tutorials?|walkthroughs?|gameplay|playthroughs?'), "Videos",    0.76),
+    (_words(r'fonts?|typefaces?'),                              "Fonts",      0.82),
 ]
 
 
@@ -140,14 +144,10 @@ class ClassificationResult:
         if self.confidence >= 0.65: return "MED"
         return "LOW"
 
-    @property
-    def is_certain(self) -> bool:
-        return self.confidence >= 0.75
-
 
 # ── Feature extractor for ML ─────────────────────────────────────────────────
 
-def _extract_text_features(path: Path) -> str:
+def extract_text_features(path: Path) -> str:
     """Produce a text bag-of-words representation of a file path."""
     parts: list[str] = []
     ext = path.suffix.lower().lstrip(".")
@@ -173,7 +173,7 @@ class SmartClassifier:
     model_path          : override for the pickled ML model location
     """
 
-    REVIEW_FOLDER = "__Review__"
+    REVIEW_FOLDER = REVIEW_FOLDER
 
     def __init__(
         self,
@@ -183,7 +183,7 @@ class SmartClassifier:
     ) -> None:
         self.categories            = categories
         self.confidence_threshold  = confidence_threshold
-        self._model_path           = model_path or (Path.home() / ".arise-i" / "model.pkl")
+        self._model_path           = model_path or (APP_DIR / "model.pkl")
         self._ext_map              = self._build_ext_map()
         self._ml_pipeline: Optional[object] = None
         self._ml_labels:   list[str]        = []
@@ -235,12 +235,11 @@ class SmartClassifier:
     def classify(self, path: Path) -> ClassificationResult:
         """Classify *path* through all layers; return the highest-confidence result."""
         # ── Assignment detection (runs alongside other layers) ───────────
-        _assignment_info: "AssignmentInfo | None" = None
-        if _ASSIGNMENT_AVAILABLE and parse_assignment is not None:
-            _assignment_info = parse_assignment(path)
+        _assignment_info: "AssignmentInfo | None" = parse_assignment(path)
 
+        ext_result = self._by_extension(path)
         results = [
-            self._by_extension(path),
+            ext_result,
             self._by_mime(path),
             self._by_heuristics(path),
         ]
@@ -249,7 +248,6 @@ class SmartClassifier:
         # whose *category* is the file-type folder (from extension) so the
         # organiser can build:  Subject / Assignment N / <file-type> /
         if _assignment_info is not None:
-            ext_result = self._by_extension(path)
             file_type_cat = ext_result.category if ext_result.confidence > 0.5 else "Others"
             results.append(ClassificationResult(
                 category=file_type_cat,
@@ -342,17 +340,19 @@ class SmartClassifier:
         if not _SKLEARN_AVAILABLE or self._ml_pipeline is None:
             return ClassificationResult(category="Others", confidence=0.05, layer="ml_model")
         try:
-            text  = _extract_text_features(path)
+            text  = extract_text_features(path)
             proba = self._ml_pipeline.predict_proba([text])[0]
+            # predict_proba columns follow the pipeline's own class order
+            labels = [str(c) for c in getattr(self._ml_pipeline, "classes_", self._ml_labels)]
             best  = int(proba.argmax())
             conf  = float(proba[best])
-            cat   = self._ml_labels[best]
+            cat   = labels[best]
             if cat == self.REVIEW_FOLDER or cat not in self.categories:
                 # Models trained before v2.1 could learn the Review quarantine
                 # as a label, and a config change can remove a category.
                 return ClassificationResult(category="Others", confidence=0.05, layer="ml_model")
             alts  = sorted(
-                [(self._ml_labels[i], float(proba[i]))
+                [(labels[i], float(proba[i]))
                  for i in range(len(proba)) if i != best],
                 key=lambda x: -x[1],
             )[:3]

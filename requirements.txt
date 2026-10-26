@@ -1,20 +1,9 @@
-# ARISE-I — Runtime dependencies
-# Install with:  pip install -r requirements.txt
+# ARISE-I runtime dependencies (the same list as pyproject.toml).
+# Prefer:  pip install .          or, with the AI layer:  pip install ".[ai]"
 
-# YAML config file support (arise-i.config.yaml)
-PyYAML>=6.0
+PyYAML>=6.0        # arise-i.config.yaml support
+watchdog>=3.0.0    # Auto-Sort / --watch
 
-# File-system event watching for --watch / daemon mode
-# Optional — only needed if you use the Watch button or --watch flag
-watchdog>=3.0.0
-
-# ── AI / Smart-Classification extras (optional) ───────────────────────────────
-# Install with:  pip install arise-i[ai]  or  pip install scikit-learn filetype
-#
-# scikit-learn  — Enables the ML model layer (Layer 4 of the classifier).
-#                 Without it, ARISE-I falls back to extension + MIME + heuristics.
-# filetype      — Byte-level MIME detection (more accurate than Python stdlib).
-#                 Without it, ARISE-I falls back to mimetypes.guess_type().
-#
-# scikit-learn>=1.3
-# filetype>=1.2
+# Optional AI layer — enable with:  pip install ".[ai]"
+#   scikit-learn>=1.3   local ML model that learns from your Review decisions
+#   filetype>=1.2       byte-level type detection (falls back to mimetypes)

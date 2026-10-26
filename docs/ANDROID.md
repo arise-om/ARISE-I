@@ -43,7 +43,7 @@ android/
 ### One set of rules for both apps
 `scripts/export_rules.py` writes the Python classifier tables to `android/engine/src/main/resources/arise-rules.json`. CI runs it with `--check`, so a rule change that skips the export fails.
 
-`tests/fixtures/classification_golden.json` lists 42 tricky file names and where a run must leave each one. Both engines must pass it:
+`tests/fixtures/classification_golden.json` lists 49 tricky file names and where a run must leave each one. Both engines must pass it:
 - Python: `tests/test_golden.py`
 - Kotlin: `ClassifierParityTest`
 
@@ -83,6 +83,13 @@ After changing any classifier table in Python:
 ```bash
 python scripts/export_rules.py
 ```
+
+Behaviour that lives in code rather than tables has a hand-written Kotlin port
+and must be changed in both places: copy-suffix stripping in
+`arise_i/core/assignment.py` ↔ `AssignmentParser.kt`, folder-name sanitising
+in `arise_i/core/paths.py` ↔ `FileNames.kt`, and Review/assignment placement
+in `arise_i/core/organizer.py` ↔ `Organizer.kt`. Add a golden case for any such
+change so the parity tests catch a missed port.
 
 ### Release signing
 `release.yml` builds `ARISE-I-Android.apk` on every `v*` tag. To sign it with your own key, add these repository secrets:

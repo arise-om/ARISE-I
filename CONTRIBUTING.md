@@ -27,7 +27,7 @@ git clone https://github.com/arise-om/ARISE-I.git
 cd ARISE-I
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,ai]"
-pytest tests/ -v
+pytest
 ```
 
 ---
@@ -36,30 +36,30 @@ pytest tests/ -v
 
 ```
 ARISE-I/
-├── file_organizer.py        Core sort orchestrator + CLI (main)
-├── classifier.py            AI classification engine (4-layer)
-├── assignment_classifier.py Assignment / lab / project filename parser
-├── learning_store.py        Feedback log + model retraining
-├── health_monitor.py        Self-healing background daemon
-├── file_watcher.py          Auto-sort watchdog daemon
-├── gui.py                   Tkinter dashboard
-├── plugin_loader.py         Plugin loader (~/.arise-i/plugins)
-├── prefs.py                 Preference read/write
-├── onboarding.py            First-run wizard
+├── arise_i/
+│   ├── __init__.py          __version__ (the only place to bump it)
+│   ├── __main__.py          `python -m arise_i` → CLI
+│   ├── constants.py         Shared file/folder names (__Review__, manifest, ~/.arise-i)
+│   ├── core/
+│   │   ├── organizer.py     Scan → classify → move, undo, config, CLI (main)
+│   │   ├── classifier.py    4-layer classification engine
+│   │   ├── assignment.py    Assignment / lab / project filename parser
+│   │   ├── learning.py      Feedback log + model retraining
+│   │   ├── health.py        Self-healing background monitor
+│   │   ├── watcher.py       Auto-Sort watchdog daemon
+│   │   ├── plugins.py       Plugin loader (~/.arise-i/plugins)
+│   │   ├── paths.py         Folder-name sanitising
+│   │   └── prefs.py         Preference read/write
+│   └── gui/
+│       ├── app.py           Tkinter dashboard
+│       ├── onboarding.py    First-run wizard
+│       └── theme.py         Palettes, fonts, scaling, animation, toggle switch
 ├── tests/                   pytest suite (isolated HOME, see conftest.py)
-├── scripts/
-│   └── create_demo_files.py Demo sandbox generator
-├── docs/
-│   ├── PRODUCT_VISION.md    Roadmap and architecture
-│   ├── UPGRADE_PLAN.md      v2.1 audit findings + next-version plan
-│   ├── USER_GUIDE.md / QUICKSTART.md / LAUNCH.md
-├── install.sh / install.bat / start.sh / start.bat
-├── ARISE-I.iss              Inno Setup (Windows installer)
+├── scripts/                 install / start scripts, create_demo_files.py
+├── packaging/               arise-i.spec (PyInstaller), ARISE-I.iss (Windows installer)
+├── docs/                    USER_GUIDE.md, screenshots
 ├── pyproject.toml           Package metadata + ruff config
 └── CHANGELOG.md             Release history
-
-New runtime module?  Add it to `py-modules` in pyproject.toml — optional
-imports are wrapped in try/except, so a missing entry fails *silently*.
 ```
 
 ---
@@ -76,10 +76,14 @@ source .venv/bin/activate          # Linux/macOS
 pip install -e ".[dev,ai]"
 
 # Run the GUI in development
-python gui.py
+arise-i-gui                        # or: python -m arise_i.gui.app
 
 # Run the CLI
-python file_organizer.py --help
+arise-i --help                     # or: python -m arise_i --help
+
+# A harmless folder of sample files to try it on
+python scripts/create_demo_files.py --output ./demo_sandbox
+arise-i --dry-run --path ./demo_sandbox
 ```
 
 ---
@@ -87,17 +91,17 @@ python file_organizer.py --help
 ## Running Tests
 
 ```bash
-# Full test suite
-pytest tests/ -v
+# Full test suite (GUI tests need a display: `xvfb-run pytest` on headless Linux)
+pytest
 
 # With coverage report
-pytest tests/ --cov=. --cov-report=term-missing
+pytest --cov=arise_i --cov-report=term-missing
 
 # A specific test file
-pytest tests/test_real_run.py -v
+pytest tests/test_real_run.py
 
-# Watch mode (requires pytest-watch)
-ptw tests/
+# Lint
+ruff check .
 ```
 
 All PRs must maintain **100% of existing tests passing**. New features
@@ -146,11 +150,11 @@ chore(deps): bump scikit-learn from 1.3 to 1.5
 ### PR Checklist
 
 - [ ] Tests added / updated
-- [ ] All 120+ existing tests still pass
+- [ ] All existing tests still pass (`pytest`) and `ruff check .` is clean
 - [ ] CHANGELOG.md updated
 - [ ] Public functions have docstrings
-- [ ] No hardcoded paths (use `Path.home()` / constants)
-- [ ] Optional deps handled with `try/except ImportError`
+- [ ] No hardcoded paths or file names (use `arise_i/constants.py`)
+- [ ] Optional deps (scikit-learn, filetype) handled with `try/except ImportError`
 
 ---
 
@@ -168,8 +172,8 @@ ARISE-I is **strictly local-first**. PRs that introduce:
 
 ### Graceful Degradation
 
-All optional features (sklearn, filetype, watchdog) must degrade
-gracefully when the dependency is absent:
+The optional AI dependencies (scikit-learn, filetype) must degrade
+gracefully when absent:
 
 ```python
 try:
@@ -202,13 +206,25 @@ with open(tmp, "w") as f:
 tmp.replace(target)  # atomic on POSIX; near-atomic on Windows
 ```
 
+Anything that moves files or edits the undo manifest must run under
+`organizer._RUN_LOCK` (`organize_folder`, `undo_last_run` and
+`record_moves` already do).
+
+### Colours and sizes
+
+Use palette keys from `arise_i/gui/theme.py`, never hex values: a theme
+switch remaps colours key-for-key. Text on `ACCENT_FILL` uses `ON_ACCENT`.
+New text/background pairs belong in `tests/test_theme.py`, which enforces
+WCAG AA contrast. Pixel sizes go through `theme.scaled()` so they grow on
+HiDPI screens.
+
 ---
 
 ## Adding Features
 
 ### New Classifier Layer
 
-Add a new layer method to `SmartClassifier` in `classifier.py`:
+Add a new layer method to `SmartClassifier` in `arise_i/core/classifier.py`:
 
 ```python
 def _by_my_layer(self, path: Path) -> ClassificationResult:
@@ -223,7 +239,7 @@ def _by_my_layer(self, path: Path) -> ClassificationResult:
 Then add it to `classify()`:
 ```python
 results = [
-    self._by_extension(path),
+    ext_result,
     self._by_mime(path),
     self._by_heuristics(path),
     self._by_my_layer(path),   # ← add here
@@ -246,13 +262,28 @@ def classify(path: Path) -> str | None:
 
 ### New Health Check
 
-Add a `_check_<name>()` method to `HealthMonitor` and call it from `_run_checks()`:
+Add a `_check_<name>()` method to `HealthMonitor` (`arise_i/core/health.py`) and call it from `_run_checks()`:
 
 ```python
 def _check_my_thing(self) -> dict:
     # return {"ok": True/False, ...}
     pass
 ```
+
+---
+
+## Releasing
+
+1. Bump `__version__` in `arise_i/__init__.py` — the package, the GUI, the
+   macOS bundle and the Windows installer all read it from there.
+2. Move the `[Unreleased]` notes in `CHANGELOG.md` under the new version.
+3. Commit, then tag and push: `git tag v2.2.0 && git push origin v2.2.0`.
+4. The **Build desktop apps** workflow builds Windows (installer), macOS and
+   Linux, runs `--self-test` on each, and attaches them to the GitHub Release.
+
+macOS asks users to approve unsigned apps in System Settings, and Windows
+SmartScreen warns about new unsigned installers; signing and notarisation
+remove both.
 
 ---
 

@@ -20,9 +20,14 @@ class AssignmentParser(rules: Rules) {
     private val typeFirst = spec.typeFirst.map(::compile)
     private val subjectFirst = spec.subjectFirst.map(::compile)
     private val noSubject = spec.noSubject.map(::compile)
+    private val copySuffix = spec.copySuffix.takeIf { it.isNotEmpty() }
+        ?.let { Pattern.compile(it, PY_DEFAULT) }
 
     fun parse(fileName: String): AssignmentInfo? {
-        val stem = FileNames.stem(fileName).trim()
+        // Browsers add " (1)" to duplicate downloads; without stripping it,
+        // "Lab 2 - Bio (1)" would file under a "Bio (1)" subject.
+        val raw = FileNames.stem(fileName)
+        val stem = (copySuffix?.matcher(raw)?.replaceFirst("") ?: raw).trim()
         match(typeFirst, stem)?.let { m ->
             return AssignmentInfo(subject(m), type(m), m.group("num").toInt(), conf("type_first"))
         }

@@ -30,18 +30,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install build tools
-        run: python -m pip install --upgrade pip pyinstaller pyyaml watchdog
+      # Install the package with its AI extras so the release builds ship the
+      # same ML and byte-level MIME layers the README describes.
+      - name: Install ARISE-I and build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[ai]" "pyinstaller>=6.0"
       - name: Build standalone app
-        run: pyinstaller --noconfirm --clean --windowed --name ARISE-I gui.py
+        run: pyinstaller --noconfirm --clean packaging/arise-i.spec
+      - name: Smoke-test the build
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          exe=dist/ARISE-I/ARISE-I
+          [ "$RUNNER_OS" = "Windows" ] && exe="$exe.exe"
+          "$exe" --self-test
+      - name: Smoke-test the build (macOS)
+        if: runner.os == 'macOS'
+        run: dist/ARISE-I.app/Contents/MacOS/ARISE-I --self-test
       - name: Build Windows installer
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           choco install innosetup --no-progress --yes
           $version = "${{ github.ref_name }}" -replace '^v', ''
-          if ($version -notmatch '^\d') { $version = (Select-String -Path pyproject.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value }
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" ARISE-I.iss
+          if ($version -notmatch '^\d') { $version = (Select-String -Path arise_i/__init__.py -Pattern '^__version__ = "(.+)"').Matches[0].Groups[1].Value }
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" packaging/ARISE-I.iss
       - name: Create macOS zip
         if: runner.os == 'macOS'
         run: |

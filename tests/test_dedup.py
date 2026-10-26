@@ -4,7 +4,7 @@ tests/test_dedup.py
 Tests for get_unique_destination — duplicate filename resolution.
 """
 
-from file_organizer import get_unique_destination
+from arise_i.core.organizer import get_unique_destination
 
 
 class TestDeduplication:

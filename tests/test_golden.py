@@ -20,8 +20,8 @@ from pathlib import Path
 
 import pytest
 
-import classifier
-from file_organizer import LOG_MANIFEST, organize_folder
+from arise_i.core import classifier
+from arise_i.core.organizer import LOG_MANIFEST, organize_folder
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 from export_rules import MIME_BY_EXTENSION  # noqa: E402

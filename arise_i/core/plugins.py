@@ -44,10 +44,10 @@ Installation
     cp my_plugin.py ~/.arise-i/plugins/
 
 CLI usage (automatic — plugins load transparently):
-    python file_organizer.py --path ~/Downloads
+    arise-i --path ~/Downloads
 
 Python API:
-    from plugin_loader import load_plugins, classify_with_plugins
+    from arise_i.core.plugins import load_plugins, classify_with_plugins
 
     plugins = load_plugins()                         # load from default dir
     category = classify_with_plugins(path, plugins)  # None if all abstain
@@ -59,10 +59,13 @@ import sys
 from pathlib import Path
 from typing import Callable
 
+from arise_i.constants import APP_DIR
+from arise_i.core.paths import sanitize_folder_name
+
 logger = logging.getLogger("arise_i.plugins")
 
 # Default plugin directory — users drop their .py files here
-PLUGIN_DIR: Path = Path.home() / ".arise-i" / "plugins"
+PLUGIN_DIR: Path = APP_DIR / "plugins"
 
 # Type alias: a callable that accepts a Path and returns str | None
 ClassifierPlugin = Callable[[Path], "str | None"]
@@ -194,7 +197,6 @@ def classify_with_plugins(
         the file, or ``None`` if all plugins abstain (caller falls back to
         the built-in extension map).
     """
-    import re
     for plugin in plugins:
         try:
             result = plugin(path)
@@ -204,10 +206,6 @@ def classify_with_plugins(
 
         if isinstance(result, str) and result.strip():
             # Sanitize plugin result to prevent path traversal
-            sanitized = result.strip()
-            sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', sanitized)
-            sanitized = sanitized.replace('..', '')
-            sanitized = sanitized.strip('. ')
-            return sanitized if sanitized else None
+            return sanitize_folder_name(result.strip())
 
     return None

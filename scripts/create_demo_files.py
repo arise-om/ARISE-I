@@ -67,10 +67,14 @@ DEMO_FILES: list[tuple[str, str]] = [
     # --- Edge cases ---
     ("PHOTO_UPPERCASE.JPG",         ""),                     # uppercase extension
     ("résumé_français.pdf",         ""),                     # non-ASCII filename
-    ("report_final.pdf",            ""),                     # duplicate of another .pdf
+    ("report_final.pdf",            ""),                     # second plain PDF
     ("NO_EXTENSION_FILE",           ""),                     # no extension → Others
-    ("photo.jpg",                   ""),                     # first copy
-    ("photo.jpg",                   ""),                     # duplicate → dedup test
+    ("photo.jpg",                   ""),                     # clashes with Images/photo.jpg below
+]
+
+# Already-sorted files, so the run has to de-duplicate (photo.jpg → photo (1).jpg)
+PRESORTED_FILES = [
+    ("Images/photo.jpg", ""),
 ]
 
 
@@ -80,11 +84,11 @@ def create_demo_sandbox(output_dir: str) -> Path:
     out.mkdir(parents=True, exist_ok=True)
 
     created = 0
-    for filename, content in DEMO_FILES:
+    for filename, content in DEMO_FILES + PRESORTED_FILES:
         dest = out / filename
-        # If the file already exists (e.g. the duplicate photo.jpg), skip —
-        # ARISE-I's dedup logic will handle the copy that is there.
+        # Re-running the script never overwrites a file you have edited
         if not dest.exists():
+            dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(content, encoding="utf-8")
             created += 1
 
@@ -105,7 +109,7 @@ def create_demo_sandbox(output_dir: str) -> Path:
     print(f"[OK]  Demo sandbox ready: {out}")
     print(f"      {created} files created  |  {symlink_note}  |  1 empty subfolder")
     print("\nNext step:")
-    print(f"   python file_organizer.py --dry-run --path \"{out}\"")
+    print(f"   arise-i --dry-run --path \"{out}\"")
     return out
 
 

@@ -16,8 +16,9 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog
 
-from prefs import get_pref, save_prefs, load_prefs
-from ui_theme import THEMES, Animator, font as _font
+from arise_i.core.prefs import get_pref, save_prefs, load_prefs
+from arise_i.gui.theme import ON_ACCENT, THEMES, Animator, mix, scaled, to_hex
+from arise_i.gui.theme import font as _font
 
 
 # ---------------------------------------------------------------------------
@@ -47,18 +48,18 @@ class OnboardingWizard(tk.Toplevel):
         super().__init__(parent)
 
         self.result: bool = False
-        self.confirmed_folder: str = str(Path.home() / "Downloads")
+        downloads = Path.home() / "Downloads"
+        self.confirmed_folder: str = str(downloads) if downloads.is_dir() else ""
         # Follow the theme the user picked in the main window
         self._p = THEMES.get(get_pref("theme", "light"), THEMES["light"])
         self._anim = Animator(self, enabled=lambda: bool(get_pref("animations", True)))
 
         self.title("Welcome to ARISE-I")
-        self.resizable(False, False)
+        self.resizable(True, False)
+        self._width = scaled(self, 600)
         self.configure(bg=self._p["BG"])
 
-        # Make it modal
         self.transient(parent)
-        self.grab_set()
 
         # Close = skip onboarding (don't block forever)
         self.protocol("WM_DELETE_WINDOW", self._skip)
@@ -70,8 +71,19 @@ class OnboardingWizard(tk.Toplevel):
         self._folder_var.trace_add("write", lambda *_: self._validate())
         self._validate()
         self.update_idletasks()
-        self._center_on(parent, 600, self.winfo_reqheight())
+        self.minsize(self._width, self.winfo_reqheight())
+        self._center_on(parent, self._width, self.winfo_reqheight())
         self._fade_in()
+        self._make_modal()
+
+    def _make_modal(self) -> None:
+        # On X11 a grab fails ("window not viewable") until the window is mapped
+        try:
+            self.wait_visibility()
+            self.grab_set()
+        except tk.TclError:
+            pass
+        self._folder_entry.focus_set()
 
     def _center_on(self, parent: tk.Misc, w: int, h: int) -> None:
         parent.update_idletasks()
@@ -90,13 +102,24 @@ class OnboardingWizard(tk.Toplevel):
             except tk.TclError: pass
         _alpha(0.0)
         self._anim.run("alpha", 320, _alpha)
-        # Let the hero title glide up into place
-        self._anim.run("hero", 520, lambda t: self._hero_title.pack_configure(
-            pady=(int(44 - 12 * t), 4)))
+        # Let the hero title glide up into place.  The space it gives up is
+        # handed to the subtitle's bottom padding, so the hero keeps the
+        # height the window was sized for and nothing is clipped.
+        def _glide(t):
+            shift = int(12 * t)
+            self._hero_title.pack_configure(pady=(44 - shift, 4))
+            self._hero_sub.pack_configure(pady=(0, 26 + shift))
+        self._anim.run("hero", 520, _glide)
 
     def _hover(self, widget: tk.Misc, base: str, hover: str) -> None:
-        widget.bind("<Enter>", lambda e: widget.configure(bg=self._p[hover]), add="+")
-        widget.bind("<Leave>", lambda e: widget.configure(bg=self._p[base]), add="+")
+        """Fade *widget*'s background between two palette keys on mouse over."""
+        def _fade(target_key: str):
+            start = to_hex(widget, str(widget.cget("bg")))
+            end = self._p[target_key]
+            self._anim.run(f"hover{widget}", 140,
+                           lambda t: widget.configure(bg=mix(start, end, t)))
+        widget.bind("<Enter>", lambda e: _fade(hover), add="+")
+        widget.bind("<Leave>", lambda e: _fade(base), add="+")
 
     # ------------------------------------------------------------------ #
     # Build UI                                                             #
@@ -105,19 +128,20 @@ class OnboardingWizard(tk.Toplevel):
     def _build(self) -> None:
         P = self._p
         # ── Hero section ──────────────────────────────────────────────
-        hero = tk.Frame(self, bg=P["ACCENT"])
+        hero = tk.Frame(self, bg=P["ACCENT_FILL"])
         hero.pack(fill="x")
 
         self._hero_title = tk.Label(
             hero, text="ARISE-I",
-            font=_font(34, "bold"), fg="white", bg=P["ACCENT"],
+            font=_font(34, "bold"), fg=ON_ACCENT, bg=P["ACCENT_FILL"],
         )
-        self._hero_title.pack(pady=(32, 4))
+        self._hero_title.pack(pady=(44, 4))
 
-        tk.Label(
+        self._hero_sub = tk.Label(
             hero, text="Your personal, AI-powered file organizer",
-            font=_font(12), fg="white", bg=P["ACCENT"], padx=20,
-        ).pack(pady=(0, 26))
+            font=_font(12), fg=ON_ACCENT, bg=P["ACCENT_FILL"], padx=20,
+        )
+        self._hero_sub.pack(pady=(0, 26))
 
         # ── Feature cards ─────────────────────────────────────────────
         cards_frame = tk.Frame(self, bg=P["BG"], padx=32)
@@ -137,7 +161,7 @@ class OnboardingWizard(tk.Toplevel):
             tk.Label(row, text=title, font=_font(11, "bold"), fg=P["FG"],
                      bg=P["SURFACE"]).pack(side="left")
             tk.Label(card, text=desc, font=_font(9), fg=P["FG_DIM"], bg=P["SURFACE"],
-                     wraplength=220, justify="left").pack(anchor="w", pady=(4, 0))
+                     wraplength=scaled(self, 220), justify="left").pack(anchor="w", pady=(4, 0))
 
         # ── Folder picker ─────────────────────────────────────────────
         picker_frame = tk.Frame(self, bg=P["BG"], padx=32, pady=8)
@@ -169,6 +193,7 @@ class OnboardingWizard(tk.Toplevel):
             activebackground=P["HOVER"], activeforeground=P["ACCENT_D"],
             relief="flat", bd=0, padx=12, pady=4,
             cursor="hand2", command=self._browse,
+            highlightthickness=1, highlightbackground=P["SURFACE"], highlightcolor=P["ACCENT"],
         )
         browse.pack(side="right", padx=4)
         self._hover(browse, "SURFACE", "HOVER")
@@ -184,13 +209,14 @@ class OnboardingWizard(tk.Toplevel):
         cta = tk.Button(
             cta_frame,
             text="Let's Go  →",
-            font=_font(12, "bold"), fg="white", bg=P["ACCENT"],
-            activebackground=P["ACCENT_D"], activeforeground="white",
+            font=_font(12, "bold"), fg=ON_ACCENT, bg=P["ACCENT_FILL"],
+            activebackground=P["ACCENT_D"], activeforeground=ON_ACCENT,
             relief="flat", bd=0, padx=40, pady=11,
             cursor="hand2", command=self._complete,
+            highlightthickness=2, highlightbackground=P["ACCENT_FILL"], highlightcolor=P["FG"],
         )
         cta.pack(fill="x")
-        self._hover(cta, "ACCENT", "ACCENT_D")
+        self._hover(cta, "ACCENT_FILL", "ACCENT_D")
 
         foot = tk.Frame(cta_frame, bg=P["BG"])
         foot.pack(fill="x", pady=(8, 0))
@@ -199,18 +225,26 @@ class OnboardingWizard(tk.Toplevel):
             text="🔒  Your files never leave your computer. Nothing is deleted.",
             font=_font(9), fg=P["FG_DIM"], bg=P["BG"],
         ).pack(side="left")
-        skip = tk.Label(foot, text="Skip for now", font=_font(9, "underline"),
-                        fg=P["FG_DIM"], bg=P["BG"], cursor="hand2")
+        # A real button, so it is reachable with Tab and Space
+        skip = tk.Button(foot, text="Skip for now", font=_font(9, "underline"),
+                         fg=P["FG_DIM"], bg=P["BG"], activebackground=P["HOVER"],
+                         activeforeground=P["FG"], relief="flat", bd=0, padx=6, pady=2,
+                         cursor="hand2", command=self._skip,
+                         highlightthickness=1, highlightbackground=P["BG"],
+                         highlightcolor=P["ACCENT"])
         skip.pack(side="right")
-        skip.bind("<Button-1>", lambda e: self._skip())
 
     def _validate(self) -> None:
         P = self._p
         folder = self._folder_var.get().strip()
         ok = bool(folder) and Path(folder).expanduser().is_dir()
-        self._folder_hint.configure(
-            text="✓  Folder found" if ok else "⚠  Folder not found — your Downloads folder will be used",
-            fg=P["GREEN"] if ok else P["YELLOW"])
+        if ok:
+            text = "✓  Folder found"
+        elif not folder:
+            text = "Choose a folder to continue"
+        else:
+            text = "⚠  Folder not found — check the path or Browse…"
+        self._folder_hint.configure(text=text, fg=P["GREEN"] if ok else P["YELLOW"])
         self._entry_box.configure(highlightbackground=P["BORDER"] if ok else P["YELLOW"])
 
     # ------------------------------------------------------------------ #
@@ -228,8 +262,13 @@ class OnboardingWizard(tk.Toplevel):
 
     def _complete(self) -> None:
         folder = self._folder_var.get().strip()
-        if folder and Path(folder).expanduser().is_dir():
-            self.confirmed_folder = folder
+        if not (folder and Path(folder).expanduser().is_dir()):
+            # Don't finish setup pointing at a folder that doesn't exist
+            self._validate()
+            self._folder_entry.focus_set()
+            self.bell()
+            return
+        self.confirmed_folder = folder
         self.result = True
 
         # Persist completion
@@ -238,14 +277,19 @@ class OnboardingWizard(tk.Toplevel):
         prefs["last_folder"] = self.confirmed_folder
         save_prefs(prefs)
 
-        self.grab_release()
+        self._close()
+
+    def _close(self) -> None:
+        try:
+            self.grab_release()
+        except tk.TclError:
+            pass
         self.destroy()
 
     def _skip(self) -> None:
         """User closed the window — skip onboarding, don't mark as done."""
         self.result = False
-        self.grab_release()
-        self.destroy()
+        self._close()
 
 
 # ---------------------------------------------------------------------------

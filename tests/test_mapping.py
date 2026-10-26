@@ -5,7 +5,7 @@ Tests for extension → category mapping logic.
 """
 
 import pytest
-from file_organizer import build_extension_map, DEFAULT_CATEGORIES
+from arise_i.core.organizer import build_extension_map, DEFAULT_CATEGORIES
 
 
 @pytest.fixture

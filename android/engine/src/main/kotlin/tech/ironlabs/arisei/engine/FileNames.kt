@@ -42,9 +42,18 @@ object FileNames {
 
     private val unsafeChars = Regex("[<>:\"/\\\\|?*\\x00-\\x1f]")
 
-    /** Port of `file_organizer._sanitize_category_name` — no traversal, never empty. */
+    /** Windows device names, refused as file/folder names with or without an extension. */
+    private val windowsReserved: Set<String> =
+        setOf("CON", "PRN", "AUX", "NUL") + (1..9).flatMap { listOf("COM$it", "LPT$it") }
+
+    /**
+     * Port of `arise_i.core.paths.sanitize_folder_name` (fallback "Others") —
+     * no traversal, never empty, and "Con" becomes "Con_" so the folder can
+     * also be created when the files are later copied to Windows.
+     */
     fun sanitizeCategory(name: String): String {
         val cleaned = strip(name.replace(unsafeChars, "").replace("..", ""), ". ")
-        return cleaned.ifEmpty { "Others" }
+        if (cleaned.isEmpty()) return "Others"
+        return if (cleaned.substringBefore('.').uppercase() in windowsReserved) cleaned + "_" else cleaned
     }
 }
