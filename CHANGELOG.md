@@ -17,6 +17,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   result notifications with Undo, Quick Settings tile, health checks. No network permission.
 - **Shared rules**: `scripts/export_rules.py` exports the classifier tables for the Android
   engine; `tests/fixtures/classification_golden.json` holds both engines to the same results.
+- **Android share target and widget**: share any file to "Sort with ARISE-I" to see its Plan;
+  a 2×1 home-screen widget shows the loose-file count and opens the Plan.
 - **Crash-safe journal** on Android: a run interrupted at any point is recovered on next
   start with no lost or duplicated files, and Review choices can be undone.
 

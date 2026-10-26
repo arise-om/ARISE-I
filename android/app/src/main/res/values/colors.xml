@@ -3,4 +3,7 @@
     <color name="arise_bg">#FFF5F5F7</color>
     <color name="arise_accent">#FF007AFF</color>
     <color name="ic_launcher_background">#FF007AFF</color>
+    <color name="widget_bg">#FFFFFFFF</color>
+    <color name="widget_fg">#FF1D1D1F</color>
+    <color name="widget_fg_dim">#FF6E6E73</color>
 </resources>

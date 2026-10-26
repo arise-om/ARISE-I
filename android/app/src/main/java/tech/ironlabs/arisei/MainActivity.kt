@@ -24,6 +24,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         requestedTab = tabFrom(intent)
+        if (savedInstanceState == null) handleAction(intent)
         setContent {
             val settings by repository.settings.settings.collectAsStateWithLifecycle()
             AriseTheme(settings.theme, settings.dynamicColor, settings.reduceMotion) {
@@ -35,8 +36,23 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         requestedTab = tabFrom(intent)
+        handleAction(intent)
+    }
+
+    /** Widget "Organize" and the share target open the Plan directly. */
+    private fun handleAction(intent: Intent?) {
+        if (intent?.getStringExtra(EXTRA_ACTION) != ACTION_ORGANIZE) return
+        vm.startPlan(intent.getStringArrayExtra(EXTRA_ONLY)?.toSet())
+        intent.removeExtra(EXTRA_ACTION)
     }
 
     private fun tabFrom(intent: Intent?): Tab? =
         if (intent?.getStringExtra(Notifier.EXTRA_TAB) == Notifier.TAB_REVIEW) Tab.REVIEW else null
+
+    companion object {
+        const val EXTRA_ACTION = "action"
+        const val ACTION_ORGANIZE = "organize"
+        /** Optional: limit the Plan to these file names (share target). */
+        const val EXTRA_ONLY = "only"
+    }
 }
