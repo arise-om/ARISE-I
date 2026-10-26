@@ -405,6 +405,12 @@ def _record_run(target_dir: Path, moves: list[dict]) -> None:
         print(f"  {Color.YELLOW}⚠ Warning: Could not record run in manifest.{Color.RESET}")
 
 
+def record_moves(target_dir: str | Path, moves: list[dict]) -> None:
+    """Log moves made outside a run (e.g. Review decisions) so Undo covers them."""
+    with _RUN_LOCK:
+        _record_run(Path(target_dir).expanduser().resolve(), moves)
+
+
 # ---------------------------------------------------------------------------
 # Plain-text audit log
 # ---------------------------------------------------------------------------

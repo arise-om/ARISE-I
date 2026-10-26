@@ -33,6 +33,8 @@ from arise_i.core.organizer import (
     is_protected_dir,
     load_categories,
     organize_folder,
+    record_moves,
+    skip_reason,
     undo_last_run,
 )
 from arise_i.core.prefs import load_prefs, save_prefs, set_pref
@@ -125,15 +127,14 @@ class AriseIApp(tk.Tk):
         self._set_icon()
 
         # State
-        self._watch_thread = None
         self._watch_stop   = threading.Event()
         self._log_queue    = queue.Queue()
         self._watching     = False
         self._pulse_active = False
         self._pulse_id     = None
         self._busy         = False
-        self._current_op   = ""
         self._closing      = False
+        self._hint_token   = 0
         self._hint_job     = None
         self._prog_job     = None
         self._prog_phase   = 0.0
@@ -211,6 +212,15 @@ class AriseIApp(tk.Tk):
         if self._hint_job:
             self.after_cancel(self._hint_job)
         self._hint_job = self.after(250, self._refresh_folder_hint)
+
+    def _current_target(self) -> Path | None:
+        """The selected folder as an absolute path, or None if the field is empty.
+
+        ``Path("")`` resolves to the working directory, which would make
+        History and Review show some unrelated folder's data.
+        """
+        raw = self._target_var.get().strip()
+        return Path(raw).expanduser().resolve() if raw else None
 
     def _set_icon(self):
         try:
@@ -406,7 +416,11 @@ class AriseIApp(tk.Tk):
             if state["tip"] is not None:
                 state["tip"].destroy(); state["tip"] = None
 
-        widget.bind("<Enter>", lambda e: state.update(job=self.after(550, _show)), add="+")
+        def _schedule(_e):
+            _hide()
+            state["job"] = self.after(550, _show)
+
+        widget.bind("<Enter>", _schedule, add="+")
         widget.bind("<Leave>", _hide, add="+")
         widget.bind("<ButtonPress>", _hide, add="+")
 
@@ -487,7 +501,8 @@ class AriseIApp(tk.Tk):
         dot = {"ok": "GREEN", "warn": "YELLOW", "err": "RED"}.get(kind, "ACCENT")
         toast = tk.Frame(self, bg=_P["FG"], padx=14, pady=10)
         tk.Label(toast, text="●", font=_font(10), fg=_P[dot], bg=_P["FG"]).pack(side="left", padx=(0, 8))
-        tk.Label(toast, text=text, font=_font(10), fg=_P["BG"], bg=_P["FG"]).pack(side="left")
+        tk.Label(toast, text=text, font=_font(10), fg=_P["BG"], bg=_P["FG"],
+                 wraplength=380, justify="left").pack(side="left")
         self._toast_widget = toast
         rest, hidden = -48, 60
         toast.place(relx=1.0, rely=1.0, anchor="se", x=-20, y=hidden)
@@ -699,8 +714,8 @@ class AriseIApp(tk.Tk):
         self._path_entry.pack(side="left", fill="x", expand=True, ipady=7)
         self._path_entry.bind("<FocusIn>", lambda e: self._folder_box.configure(
             highlightbackground=_P["ACCENT"]))
-        self._path_entry.bind("<FocusOut>", lambda e: self._refresh_folder_hint())
-        self._path_entry.bind("<Return>", lambda e: (self.focus_set(), self._refresh_folder_hint()))
+        self._path_entry.bind("<FocusOut>", lambda e: self._commit_typed_folder())
+        self._path_entry.bind("<Return>", lambda e: self.focus_set())
         open_btn = self._button(self._folder_box, "↗", self._open_folder, kind="ghost",
                                 padx=8, pady=4)
         open_btn.pack(side="right", padx=(0, 4))
@@ -853,50 +868,82 @@ class AriseIApp(tk.Tk):
     # ------------------------------------------------------------------ Folder
 
     def _refresh_folder_hint(self) -> None:
+        """Validate the folder field, then count its files off the UI thread."""
         self._hint_job = None
+        self._hint_token += 1
         raw = self._target_var.get().strip()
         path = Path(raw).expanduser() if raw else None
-        border, color = _P["BORDER"], _P["FG_DIM"]
         if not raw:
-            text, color = "Choose a folder to organize", _P["YELLOW"]
+            self._apply_folder_hint("Choose a folder to organize", "YELLOW", "BORDER")
+            self._set_review_badge(0)
         elif not path.is_dir():
-            text, color, border = "⚠  Folder not found — check the path or Browse…", _P["RED"], _P["RED"]
+            self._apply_folder_hint("⚠  Folder not found — check the path or Browse…", "RED", "RED")
+            self._set_review_badge(0)
         elif is_protected_dir(path):
-            text, color = "⚠  Pick a subfolder — whole drives and your home folder are off-limits", _P["YELLOW"]
+            self._apply_folder_hint(
+                "⚠  Pick a subfolder — whole drives and your home folder are off-limits",
+                "YELLOW", "BORDER")
+            self._set_review_badge(0)
         else:
-            loose = 0
-            try:
-                with os.scandir(path) as it:
-                    for entry in it:
-                        if not entry.name.startswith(".") and entry.is_file():
-                            loose += 1
-                            if loose >= 10000: break
-            except OSError:
-                pass
-            count = f"{loose:,}{'+' if loose >= 10000 else ''}"
-            text = (f"{count} loose file{'s' if loose != 1 else ''} ready to sort"
-                    if loose else "✓  Nothing to sort — this folder is tidy")
-        self._folder_hint.configure(text=text, fg=color)
-        if self.focus_get() is not self._path_entry:
-            self._folder_box.configure(highlightbackground=border)
-            # Long paths: keep the folder name (the end) in view
-            self._path_entry.xview_moveto(1.0)
-        self._update_review_badge()
+            token = self._hint_token
+            threading.Thread(target=self._scan_folder, args=(path, token),
+                             daemon=True, name="arise-i-scan").start()
 
-    def _update_review_badge(self) -> None:
-        count = 0
+    def _scan_folder(self, path: Path, token: int) -> None:
+        """Worker: count loose files and Review files (slow on network drives)."""
+        loose = review = 0
         try:
-            rev = Path(self._target_var.get().strip()).expanduser() / REVIEW_FOLDER
-            if rev.is_dir():
-                count = sum(1 for i in rev.iterdir() if i.is_file() and not i.name.startswith("."))
+            with os.scandir(path) as it:
+                for entry in it:
+                    # Same rules as a run: ARISE-I's own log/manifest, hidden,
+                    # system and half-downloaded files are never sorted
+                    if entry.is_file() and skip_reason(Path(entry.path)) is None:
+                        loose += 1
+                        if loose >= 10000:
+                            break
         except OSError:
             pass
+        try:
+            with os.scandir(path / REVIEW_FOLDER) as it:
+                review = sum(1 for e in it if not e.name.startswith(".") and e.is_file())
+        except OSError:
+            pass
+        self._log_queue.put(("__HINT__", token, loose, review))
+
+    def _apply_scan(self, token: int, loose: int, review: int) -> None:
+        if token != self._hint_token:
+            return  # the folder changed while this scan ran
+        count = f"{loose:,}{'+' if loose >= 10000 else ''}"
+        text = (f"{count} loose file{'s' if loose != 1 else ''} ready to sort"
+                if loose else "✓  Nothing to sort — this folder is tidy")
+        self._apply_folder_hint(text, "FG_DIM", "BORDER")
+        self._set_review_badge(review)
+
+    def _apply_folder_hint(self, text: str, color: str, border: str) -> None:
+        self._folder_hint.configure(text=text, fg=_P[color])
+        if self.focus_get() is not self._path_entry:
+            self._folder_box.configure(highlightbackground=_P[border])
+            # Long paths: keep the folder name (the end) in view
+            self._path_entry.xview_moveto(1.0)
+        if not self._busy and not self._watching:
+            problem = color in ("RED", "YELLOW")
+            self._set_status(text.lstrip("⚠ ") if problem else "Ready to organize",
+                             "err" if color == "RED" else "warn" if problem else "ok")
+
+    def _set_review_badge(self, count: int) -> None:
         badge = self._nav_items["review"][3]
         if count:
             badge.configure(text=str(count) if count < 100 else "99+")
             badge.pack(side="right", padx=(0, 10))
         else:
             badge.pack_forget()
+
+    def _commit_typed_folder(self) -> None:
+        """Remember a typed folder right away (not only on quit) once it exists."""
+        target = self._current_target()
+        if target is not None and target.is_dir():
+            set_pref("last_folder", self._target_var.get().strip())
+        self._refresh_folder_hint()
 
     def _open_folder(self):
         target = Path(self._target_var.get().strip()).expanduser()
@@ -919,7 +966,12 @@ class AriseIApp(tk.Tk):
             w.destroy()
         self._hist_canvas.yview_moveto(0)
 
-        target = Path(self._target_var.get()).expanduser().resolve()
+        target = self._current_target()
+        if target is None:
+            self._empty_state(self._hist_container, "📁", "No folder selected",
+                              "Choose a folder to see its organize history.",
+                              ("Browse…", self._browse))
+            return
         history = _load_manifest(target)
 
         if not history:
@@ -1083,13 +1135,20 @@ class AriseIApp(tk.Tk):
             w.destroy()
         self._review_canvas.yview_moveto(0)
 
-        target  = Path(self._target_var.get()).expanduser().resolve()
-        rev_dir = target / REVIEW_FOLDER
-        files   = []
-        if rev_dir.is_dir():
-            files = [i for i in sorted(rev_dir.iterdir())
+        target = self._current_target()
+        if target is None:
+            self._set_review_badge(0)
+            self._empty_state(self._review_container, "📁", "No folder selected",
+                              "Choose a folder to review its uncertain files.",
+                              ("Browse…", self._browse))
+            return
+        files: list[Path] = []
+        try:
+            files = [i for i in sorted((target / REVIEW_FOLDER).iterdir())
                      if i.is_file() and not i.name.startswith(".")]
-        self._update_review_badge()
+        except OSError:
+            pass  # no Review folder yet, or it can't be read
+        self._set_review_badge(len(files))
 
         if not files:
             self._empty_state(self._review_container, "✅", "All clear",
@@ -1168,7 +1227,7 @@ class AriseIApp(tk.Tk):
         # …plus every category via a dropdown
         move = self._button(btn_row, "Move", None, kind="primary", size=9, padx=12, pady=4)
         move.pack(side="right")
-        picked = tk.StringVar(value=suggestions[0] if suggestions else choices[0])
+        picked = tk.StringVar(value=suggestions[0] if suggestions else "Others")
         ttk.Combobox(btn_row, textvariable=picked, values=choices,
                      state="readonly", width=16, font=_font(10)).pack(side="right", padx=(8, 6))
         tk.Label(btn_row, text="or move to", font=_font(9), fg=P["FG_DIM"],
@@ -1178,20 +1237,29 @@ class AriseIApp(tk.Tk):
 
     def _confirm_category(self, item: Path, category: str, target: Path):
         """Move a Review file to the chosen category and record feedback."""
+        if self._busy:
+            self._toast("Hang on — a run is still in progress", "warn")
+            return
         dest_dir  = target / category
         try:
             dest_dir.mkdir(parents=True, exist_ok=True)
             # Never overwrite a same-named file already in that category
             dest_path = get_unique_destination(dest_dir, item.name)
             shutil.move(str(item), str(dest_path))
+            # Logged like a run, so Undo can put the file back in Review
+            try:
+                record_moves(target, [{"src": str(item), "dest": str(dest_path),
+                                       "confidence": 1.0, "layer": "user_review"}])
+            except Exception as exc:
+                self._log(f"⚠  Could not log this move for undo: {exc}", "warn")
             note = f" (renamed: {dest_path.name})" if dest_path.name != item.name else ""
             self._log(f"✓  Review resolved: {item.name}  →  {category}/{note}  [USER]", "ok")
-            self._toast(f"Moved {item.name} → {category}", "ok")
+            self._toast(f"Moved {item.name} → {category}   ·   {_MOD_LABEL}+Z to undo", "ok")
             # Record correction in learning store
             if self._learning_store is not None:
                 try:
                     self._learning_store.record(
-                        path=item,
+                        path=dest_path,
                         predicted=REVIEW_FOLDER,
                         confirmed=category,
                         confidence=0.0,
@@ -1255,7 +1323,6 @@ class AriseIApp(tk.Tk):
         if self._prog_job:
             self.after_cancel(self._prog_job); self._prog_job = None
         self._progress.delete("all")
-        self._status_dot.configure(fg=_P["ACCENT"] if busy else _P["GREEN"])
         if busy:
             self._prog_phase = 0.0
             self._progress_tick()
@@ -1276,61 +1343,86 @@ class AriseIApp(tk.Tk):
     # ------------------------------------------------------------------ Log
 
     def _poll_log_queue(self):
+        """Drain worker messages on the Tk thread (widgets are not thread-safe)."""
         try:
             while True:
                 msg = self._log_queue.get_nowait()
-                if msg == "__DONE__":
-                    self._set_buttons_enabled(True)
-                    self._set_status("Ready to organize")
-                    if self._current_op == "undo":
-                        self._toast("Undo complete — files are back", "ok")
-                    self._current_op = ""
-                    self._refresh_folder_hint()
-                    continue
-                if msg == "__WATCH_DONE__":
-                    continue
-                if msg == "__WATCH_FAILED__":
-                    self._auto_sort_var.set(False)
-                    self._stop_watch()
-                    self._toast("Auto-sort stopped — see Activity", "err")
-                    continue
-                if msg == "__REFRESH_VIEWS__":
-                    # Tk widgets may only be touched from the main thread
-                    if self._active_tab.get() == "history":
-                        self._refresh_history()
-                    elif self._active_tab.get() == "review":
-                        self._refresh_review()
-                    self._refresh_folder_hint()
-                    continue
-                if msg == "__HEALTH_RETRAIN__":
-                    self._log("🧠  Retraining model…", "hdr")
-                    continue
-                if isinstance(msg, tuple) and msg[0] == "__STATS__":
-                    stats, dry_run = msg[1], msg[2]
-                    self._show_stats_card(stats, dry_run)
-                    n = stats.total_files()
-                    if stats.errors:
-                        self._toast(f"Finished with {stats.errors} error(s)", "warn")
-                    elif dry_run:
-                        self._toast(f"Preview ready — {n} file{'s' if n != 1 else ''} would move")
-                    else:
-                        self._toast(f"Done — {n} file{'s' if n != 1 else ''} organized", "ok")
-                    continue
-                # Determine log tag
-                tag = "ok"   if msg.startswith("✓") or msg.startswith("✅") else \
-                      "warn" if (msg.startswith("⚠") or msg.startswith("[SIM]") or
-                                 msg.startswith("⚡") or msg.startswith("♥")) else \
-                      "err"  if msg.startswith("✗") else \
-                      "hdr"  if (msg.startswith("ARISE-I") or msg.startswith("──")
-                                 or msg.startswith("🧠") or msg.startswith("⚔️")) else ""
-                # Colour-code confidence badges inline
-                if "[HIGH]" in msg:  tag = "ok"
-                elif "[LOW]" in msg: tag = "warn"
-                self._log(msg, tag)
+                try:
+                    self._handle_message(msg)
+                except Exception as exc:  # one bad message must not stop polling
+                    self._log(f"✗  Display error: {exc}", "err")
         except queue.Empty:
             pass
         if not self._closing:
             self.after(50, self._poll_log_queue)
+
+    def _handle_message(self, msg) -> None:
+        if isinstance(msg, tuple):
+            kind = msg[0]
+            if kind == "__STATS__":
+                stats, dry_run = msg[1], msg[2]
+                self._show_stats_card(stats, dry_run)
+                n = stats.total_files()
+                if stats.errors:
+                    self._toast(f"Finished with {stats.errors} error(s) — see Activity", "warn")
+                elif dry_run and not n:
+                    self._toast("Nothing to move — this folder is already tidy")
+                elif dry_run:
+                    self._toast(f"Preview ready — {n} file{'s' if n != 1 else ''} would move")
+                else:
+                    self._toast(f"Done — {n} file{'s' if n != 1 else ''} organized", "ok")
+            elif kind == "__UNDO__":
+                restored, failed = msg[1], msg[2]
+                if restored and not failed:
+                    self._toast(f"Undo complete — {restored} file{'s' if restored != 1 else ''} restored", "ok")
+                elif restored:
+                    self._toast(f"Restored {restored}, {failed} couldn't be restored — see Activity", "warn")
+                elif failed:
+                    self._toast("Nothing could be restored — see Activity", "err")
+                else:
+                    self._toast("Nothing to undo in this folder")
+            elif kind == "__RUN_FAILED__":
+                self._toast(f"Something went wrong: {msg[1]}", "err")
+            elif kind == "__HINT__":
+                self._apply_scan(msg[1], msg[2], msg[3])
+            elif kind == "__WATCH_FAILED__":
+                if msg[1] is self._watch_stop and self._watching:  # ignore stale sessions
+                    self._auto_sort_var.set(False)
+                    self._stop_watch()
+                    self._toast("Auto-Sort stopped — see Activity", "err")
+            return
+
+        if msg == "__DONE__":
+            self._set_buttons_enabled(True)
+            self._set_status("Ready to organize")
+            self._refresh_folder_hint()
+        elif msg == "__REFRESH_VIEWS__":
+            if self._active_tab.get() == "history":
+                self._refresh_history()
+            elif self._active_tab.get() == "review":
+                self._refresh_review()
+            self._refresh_folder_hint()
+        elif msg == "__HEALTH_RETRAIN__":
+            self._log("🧠  Retraining model…", "hdr")
+        else:
+            self._log(msg, self._tag_for(msg))
+
+    @staticmethod
+    def _tag_for(msg: str) -> str:
+        """Log colour for a plain message, from its leading symbol."""
+        if "[HIGH" in msg:
+            return "ok"
+        if "[LOW" in msg:
+            return "warn"
+        if msg.startswith(("✓", "✅")):
+            return "ok"
+        if msg.startswith(("⚠", "[SIM]", "⚡", "♥", "⚕")):
+            return "warn"
+        if msg.startswith("✗"):
+            return "err"
+        if msg.startswith(("ARISE-I", "──", "🧠", "⚔️")):
+            return "hdr"
+        return ""
 
     def _log(self, message: str, tag: str = ""):
         t = self._log_text
@@ -1352,13 +1444,18 @@ class AriseIApp(tk.Tk):
     def _enqueue_log(self, message: str):
         self._log_queue.put(message)
 
-    def _set_status(self, text: str):
-        self._status_bar.configure(text=text)
+    def _set_status(self, text: str, kind: str = "ok"):
+        """Status-bar text with a coloured dot: ok, busy, warn or err."""
+        dot = {"busy": "ACCENT", "warn": "YELLOW", "err": "RED"}.get(kind, "GREEN")
+        self._status_bar.configure(text=text, fg=_P["RED"] if kind == "err" else _P["FG_DIM"])
+        self._status_dot.configure(fg=_P[dot])
 
     # ------------------------------------------------------------------ Actions
 
     def _actions_locked(self) -> bool:
         """True (with a hint) while a run or auto-sort makes actions unsafe."""
+        if self._closing:
+            return True
         if self._busy:
             self._toast("Hang on — a run is still in progress", "warn"); return True
         if self._watching:
@@ -1372,12 +1469,10 @@ class AriseIApp(tk.Tk):
             self._log(f"Folder set to: {Path(folder).name}", "dim")
 
     def _browse(self):
-        if self._watching:
-            messagebox.showinfo("Auto-sort running",
-                "Turn off Auto-sort before changing folder.", parent=self)
+        if self._actions_locked():
             return
         folder = filedialog.askdirectory(title="Select folder to organize",
-                                          initialdir=self._target_var.get())
+                                          initialdir=self._target_var.get(), parent=self)
         if folder:
             self._target_var.set(folder)
             set_pref("last_folder", folder)
@@ -1402,23 +1497,22 @@ class AriseIApp(tk.Tk):
     def _run_organization(self, dry_run: bool):
         target = self._target_var.get().strip()
         if not target:
-            messagebox.showerror("No folder", "Please select a folder."); return
+            messagebox.showerror("No folder", "Please select a folder.", parent=self); return
         tp = Path(target).expanduser()
         if not tp.exists():
-            messagebox.showerror("Not found", f"Folder not found:\n{target}"); return
+            messagebox.showerror("Not found", f"Folder not found:\n{target}", parent=self); return
         if not tp.is_dir():
-            messagebox.showerror("Not a folder", f"Not a folder:\n{target}"); return
+            messagebox.showerror("Not a folder", f"Not a folder:\n{target}", parent=self); return
         if is_protected_dir(tp):
             messagebox.showerror("Safety",
                 "Choose a subfolder (Downloads, Desktop, etc.), not a whole drive "
                 "or your home folder.",
                 parent=self); return
 
-        self._current_op = "preview" if dry_run else "organize"
         self._set_buttons_enabled(False)
         (self._preview_btn if dry_run else self._sort_btn).configure(
             text="⏳  Previewing…" if dry_run else "⏳  Organizing…")
-        self._set_status("Previewing…" if dry_run else "Organizing…")
+        self._set_status("Previewing…" if dry_run else "Organizing…", "busy")
         self._switch_tab("log")
         self._log("🔎  Previewing changes" if dry_run else "✨  Organizing files", "hdr")
 
@@ -1436,6 +1530,7 @@ class AriseIApp(tk.Tk):
                 self._log_queue.put(("__STATS__", stats, dry_run))
             except Exception as e:
                 self._log_queue.put(f"✗  Error: {e}")
+                self._log_queue.put(("__RUN_FAILED__", str(e)))
             finally:
                 self._log_queue.put("__DONE__")
 
@@ -1453,11 +1548,11 @@ class AriseIApp(tk.Tk):
 
     def _start_watch(self):
         if not WATCHDOG_AVAILABLE:
-            messagebox.showerror("watchdog missing",
-                "Run: pip install watchdog"); return
+            messagebox.showerror("watchdog missing", "Run: pip install watchdog", parent=self)
+            self._auto_sort_var.set(False); return
         target = self._target_var.get().strip()
         if not target or not Path(target).expanduser().is_dir():
-            messagebox.showerror("Not found", f"Folder not found:\n{target}")
+            messagebox.showerror("Not found", f"Folder not found:\n{target}", parent=self)
             self._auto_sort_var.set(False); return
         if is_protected_dir(Path(target)):
             messagebox.showerror("Safety",
@@ -1465,18 +1560,24 @@ class AriseIApp(tk.Tk):
             self._auto_sort_var.set(False); return
 
         self._watching = True
-        self._watch_stop.clear()
+        # A fresh Event per session: re-enabling within the old worker's
+        # 0.5 s poll must not revive it, so it only ever sees its own event.
+        stop = threading.Event()
+        self._watch_stop = stop
         # Undo while watching would just get re-sorted by the watcher
         for btn in (self._sort_btn, self._preview_btn, self._undo_btn):
             btn.configure(state="disabled")
         self._path_entry.configure(state="readonly")
         self._set_menu_actions("disabled")
-        self._set_status(f"Auto-sorting {Path(target).name}…")
+        self._set_status(f"Auto-sorting {Path(target).name}…", "busy")
         self._log("🔄  Auto-sort enabled", "hdr")
         self._toast(f"Auto-Sort is watching {Path(target).name}", "ok")
         self._start_pulse()
 
-        debounce = max(0.1, min(300.0, self._debounce_var.get()))
+        try:
+            debounce = max(0.1, min(300.0, float(self._debounce_var.get())))
+        except (tk.TclError, ValueError):
+            debounce = 2.0
         cats     = load_categories(None, target)
 
         def _worker():
@@ -1506,24 +1607,22 @@ class AriseIApp(tk.Tk):
                 observer.start()
             except Exception as exc:
                 self._log_queue.put(f"✗  Auto-sort could not start: {exc}")
-                self._log_queue.put("__WATCH_FAILED__")
+                self._log_queue.put(("__WATCH_FAILED__", stop))
                 return
-            while not self._watch_stop.is_set() and observer.is_alive():
-                time.sleep(0.5)
+            while not stop.wait(0.5) and observer.is_alive():
+                pass
             try: handler._timer.cancel()
             except Exception: pass
-            crashed = not observer.is_alive() and not self._watch_stop.is_set()
+            crashed = not observer.is_alive() and not stop.is_set()
             observer.stop()
             if observer.is_alive(): observer.join(timeout=5)
             if crashed:
                 self._log_queue.put("✗  Auto-sort watcher stopped unexpectedly")
-                self._log_queue.put("__WATCH_FAILED__")
+                self._log_queue.put(("__WATCH_FAILED__", stop))
                 return
             self._log_queue.put("🛑  Auto-sort stopped")
-            self._log_queue.put("__WATCH_DONE__")
 
-        self._watch_thread = threading.Thread(target=_worker, daemon=True)
-        self._watch_thread.start()
+        threading.Thread(target=_worker, daemon=True, name="arise-i-watch").start()
 
     def _stop_watch(self):
         was_watching = self._watching
@@ -1542,10 +1641,10 @@ class AriseIApp(tk.Tk):
         if self._actions_locked(): return
         target = self._target_var.get().strip()
         if not target:
-            messagebox.showerror("No folder", "Please select a folder."); return
+            messagebox.showerror("No folder", "Please select a folder.", parent=self); return
         tp = Path(target).expanduser()
         if not tp.exists():
-            messagebox.showerror("Not found", f"Folder not found:\n{target}"); return
+            messagebox.showerror("Not found", f"Folder not found:\n{target}", parent=self); return
         # Ctrl+Z is global, so it can fire while editing the path field —
         # never move files without an explicit yes.
         if not messagebox.askyesno(
@@ -1556,16 +1655,17 @@ class AriseIApp(tk.Tk):
         ):
             return
 
-        self._current_op = "undo"
         self._set_buttons_enabled(False)
-        self._set_status("Undoing last run…")
+        self._set_status("Undoing last run…", "busy")
         self._log("↩  Undoing last organization", "hdr")
 
         def _worker():
             try:
-                undo_last_run(target, log_callback=self._enqueue_log)
+                restored, failed = undo_last_run(target, log_callback=self._enqueue_log)
+                self._log_queue.put(("__UNDO__", restored, failed))
             except Exception as e:
                 self._log_queue.put(f"✗  Error: {e}")
+                self._log_queue.put(("__RUN_FAILED__", str(e)))
             finally:
                 self._log_queue.put("__REFRESH_VIEWS__")
                 self._log_queue.put("__DONE__")
@@ -1588,6 +1688,7 @@ class AriseIApp(tk.Tk):
         if enabled:
             self._sort_btn.configure(text="✨  Organize Now")
             self._preview_btn.configure(text="🔎  Preview", bg=_P["SURFACE"])
+            self._undo_btn.configure(bg=_P["BG"])
         self._set_menu_actions(state)
         self._set_busy(not enabled)
         if not self._watching:
@@ -1601,22 +1702,37 @@ class AriseIApp(tk.Tk):
         }
         for key, fn in binds.items():
             for variant in (key, key.upper()):
-                self.bind(f"<{_MOD}-{variant}>", lambda e, f=fn: (f(), "break")[1])
+                seq = f"<{_MOD}-{variant}>"
+                handler = lambda e, f=fn: (f(), "break")[1]  # noqa: E731
+                self.bind(seq, handler)
+                # Entry's own Emacs-style keys (Ctrl+D delete, Ctrl+B/E move…)
+                # would otherwise edit the path *and* run the app action.
+                self._path_entry.bind(seq, handler)
         for i, (page_id, *_rest) in enumerate(_PAGES, start=1):
             self.bind(f"<{_MOD}-Key-{i}>", lambda e, p=page_id: self._switch_tab(p))
         self.bind("<F1>", lambda e: self._show_shortcuts())
+        if sys.platform == "darwin":
+            # Cmd+Q / app-menu Quit bypass WM_DELETE_WINDOW on macOS
+            self.createcommand("tk::mac::Quit", self._on_close)
 
     def _on_close(self):
         if self._closing:
             return
         self._closing = True
+        for job in (self._toast_job, self._hint_job, self._prog_job, self._pulse_id):
+            if job:
+                try: self.after_cancel(job)
+                except tk.TclError: pass
         if self._watching:
             self._stop_watch()
         if self._health_monitor is not None:
             self._health_monitor.stop()
         prefs = load_prefs()
         prefs["last_folder"] = self._target_var.get()
-        prefs["debounce"]    = self._debounce_var.get()
+        try:
+            prefs["debounce"] = float(self._debounce_var.get())
+        except (tk.TclError, ValueError):
+            pass
         prefs["theme"]       = self._theme
         prefs["animations"]  = self._animations
         if self.state() == "normal":

@@ -47,7 +47,8 @@ class OnboardingWizard(tk.Toplevel):
         super().__init__(parent)
 
         self.result: bool = False
-        self.confirmed_folder: str = str(Path.home() / "Downloads")
+        downloads = Path.home() / "Downloads"
+        self.confirmed_folder: str = str(downloads) if downloads.is_dir() else ""
         # Follow the theme the user picked in the main window
         self._p = THEMES.get(get_pref("theme", "light"), THEMES["light"])
         self._anim = Animator(self, enabled=lambda: bool(get_pref("animations", True)))
@@ -56,9 +57,7 @@ class OnboardingWizard(tk.Toplevel):
         self.resizable(False, False)
         self.configure(bg=self._p["BG"])
 
-        # Make it modal
         self.transient(parent)
-        self.grab_set()
 
         # Close = skip onboarding (don't block forever)
         self.protocol("WM_DELETE_WINDOW", self._skip)
@@ -72,6 +71,16 @@ class OnboardingWizard(tk.Toplevel):
         self.update_idletasks()
         self._center_on(parent, 600, self.winfo_reqheight())
         self._fade_in()
+        self._make_modal()
+
+    def _make_modal(self) -> None:
+        # On X11 a grab fails ("window not viewable") until the window is mapped
+        try:
+            self.wait_visibility()
+            self.grab_set()
+        except tk.TclError:
+            pass
+        self._folder_entry.focus_set()
 
     def _center_on(self, parent: tk.Misc, w: int, h: int) -> None:
         parent.update_idletasks()
@@ -199,18 +208,26 @@ class OnboardingWizard(tk.Toplevel):
             text="🔒  Your files never leave your computer. Nothing is deleted.",
             font=_font(9), fg=P["FG_DIM"], bg=P["BG"],
         ).pack(side="left")
-        skip = tk.Label(foot, text="Skip for now", font=_font(9, "underline"),
-                        fg=P["FG_DIM"], bg=P["BG"], cursor="hand2")
+        # A real button, so it is reachable with Tab and Space
+        skip = tk.Button(foot, text="Skip for now", font=_font(9, "underline"),
+                         fg=P["FG_DIM"], bg=P["BG"], activebackground=P["HOVER"],
+                         activeforeground=P["FG"], relief="flat", bd=0, padx=6, pady=2,
+                         cursor="hand2", command=self._skip,
+                         highlightthickness=1, highlightbackground=P["BG"],
+                         highlightcolor=P["ACCENT"])
         skip.pack(side="right")
-        skip.bind("<Button-1>", lambda e: self._skip())
 
     def _validate(self) -> None:
         P = self._p
         folder = self._folder_var.get().strip()
         ok = bool(folder) and Path(folder).expanduser().is_dir()
-        self._folder_hint.configure(
-            text="✓  Folder found" if ok else "⚠  Folder not found — your Downloads folder will be used",
-            fg=P["GREEN"] if ok else P["YELLOW"])
+        if ok:
+            text = "✓  Folder found"
+        elif not folder:
+            text = "Choose a folder to continue"
+        else:
+            text = "⚠  Folder not found — check the path or Browse…"
+        self._folder_hint.configure(text=text, fg=P["GREEN"] if ok else P["YELLOW"])
         self._entry_box.configure(highlightbackground=P["BORDER"] if ok else P["YELLOW"])
 
     # ------------------------------------------------------------------ #
@@ -228,8 +245,13 @@ class OnboardingWizard(tk.Toplevel):
 
     def _complete(self) -> None:
         folder = self._folder_var.get().strip()
-        if folder and Path(folder).expanduser().is_dir():
-            self.confirmed_folder = folder
+        if not (folder and Path(folder).expanduser().is_dir()):
+            # Don't finish setup pointing at a folder that doesn't exist
+            self._validate()
+            self._folder_entry.focus_set()
+            self.bell()
+            return
+        self.confirmed_folder = folder
         self.result = True
 
         # Persist completion
@@ -238,14 +260,19 @@ class OnboardingWizard(tk.Toplevel):
         prefs["last_folder"] = self.confirmed_folder
         save_prefs(prefs)
 
-        self.grab_release()
+        self._close()
+
+    def _close(self) -> None:
+        try:
+            self.grab_release()
+        except tk.TclError:
+            pass
         self.destroy()
 
     def _skip(self) -> None:
         """User closed the window — skip onboarding, don't mark as done."""
         self.result = False
-        self.grab_release()
-        self.destroy()
+        self._close()
 
 
 # ---------------------------------------------------------------------------

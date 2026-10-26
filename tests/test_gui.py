@@ -188,3 +188,46 @@ class TestGuiImport:
             assert exc_info.value.code == 1
         finally:
             _purge_gui_modules()
+
+
+# ---------------------------------------------------------------------------
+# Pure GUI helpers (no window needed)
+# ---------------------------------------------------------------------------
+
+class TestGuiHelpers:
+
+    @pytest.fixture(autouse=True)
+    def _app(self):
+        pytest.importorskip("tkinter")
+        self.app = importlib.import_module("arise_i.gui.app")
+
+    @pytest.mark.parametrize("msg, tag", [
+        ("✓  a.jpg  →  Images/  [HIGH 92%]", "ok"),
+        ("⚠  weird.zzz  →  __Review__/  [LOW 10%]", "warn"),
+        ("[SIM]  a.jpg  →  Images/", "warn"),
+        ("✗  OS error moving a.jpg", "err"),
+        ("ARISE-I >> Rollback complete", "hdr"),
+        ("plain text", ""),
+    ])
+    def test_log_tags(self, msg, tag):
+        assert self.app.AriseIApp._tag_for(msg) == tag
+
+    def test_relative_time(self):
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        assert self.app._relative_time(now.isoformat()) == "Just now"
+        assert self.app._relative_time((now - timedelta(minutes=5)).isoformat()) == "5 min ago"
+        assert self.app._relative_time("garbage") == "garbage"
+
+    @pytest.mark.parametrize("geom, ok", [
+        ("1080x700", True), ("1080x700+10+20", True), ("1080x700-5+-3", True),
+        ("big", False), ("", False),
+    ])
+    def test_geometry_pattern(self, geom, ok):
+        assert bool(self.app._GEOMETRY_RE.match(geom)) is ok
+
+    def test_theme_recolor_keys_are_unique_per_theme(self):
+        from arise_i.gui.theme import RECOLOR_KEYS, THEMES
+        for palette in THEMES.values():
+            values = [palette[k].lower() for k in RECOLOR_KEYS]
+            assert len(values) == len(set(values))
