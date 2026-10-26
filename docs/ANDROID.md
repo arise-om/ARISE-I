@@ -26,6 +26,8 @@ Not on Android: the desktop's Python plugins (`~/.arise-i/plugins`).
 
 ## Architecture
 
+Diagrams of the screens, key flows and the move-journal states are on the [FigJam board](https://www.figma.com/board/8qaqEUr8h1iJJGFsipjlxi).
+
 ```
 android/
 ├── engine/   pure Kotlin/JVM, no Android imports — standalone Gradle build
